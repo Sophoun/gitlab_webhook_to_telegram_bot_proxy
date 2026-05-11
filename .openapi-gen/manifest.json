@@ -1,0 +1,33 @@
+{
+  "configPath": "C:\\Users\\sophoun.nheum\\Desktop\\projects\\gitlab_webhook_to_telegram_bot_proxy\\next.openapi.json",
+  "outputFile": "C:\\Users\\sophoun.nheum\\Desktop\\projects\\gitlab_webhook_to_telegram_bot_proxy\\public\\openapi.json",
+  "diagnostics": [],
+  "performance": {
+    "prepareTemplateMs": 0.7548000000000457,
+    "loadCustomFragmentsMs": 0.0006999999999379725,
+    "prepareDocumentMs": 0.7554999999999836,
+    "scanRouteFilesMs": 0.725400000000036,
+    "deriveRoutePathMs": 0.13760000000002037,
+    "filterRouteCandidatesMs": 0.020099999999956708,
+    "sourcePrecheckMs": 0.4013999999999669,
+    "readRouteFilesMs": 0.26089999999999236,
+    "parseRouteFilesMs": 16.584400000000073,
+    "analyzeRouteFilesMs": 12.08280000000002,
+    "typescriptResponseInferenceMs": 0,
+    "processRouteFilesMs": 28.84140000000002,
+    "registerRouteMs": 19.307300000000055,
+    "getSchemaContentMs": 16.464399999999955,
+    "createRequestParamsMs": 0.24169999999992342,
+    "createRequestBodyMs": 0,
+    "processResponsesMs": 1.9464000000000397,
+    "createResponseSchemaMs": 0,
+    "buildOperationsMs": 19.330400000000054,
+    "sortAndMergePathsMs": 0.12319999999999709,
+    "buildPathsMs": 0.12319999999999709,
+    "defaultComponentsAndErrorsMs": 0.0025000000000545697,
+    "mergeSchemasMs": 0.7930000000000064,
+    "finalizeDocumentMs": 0.8707000000000562,
+    "totalMs": 52.60379999999998,
+    "scanRoutesMs": 48.89720000000011
+  }
+}

@@ -1,36 +1,55 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# GitLab Webhook to Telegram Bot Proxy
 
-## Getting Started
+A lightweight proxy service to forward GitLab webhooks to Telegram notifications.
 
-First, run the development server:
+## API Documentation
+
+### GitLab Webhook to Telegram
+
+- **Path:** `/api/v1/gitlab_webhook_to_telegram_bot`
+- **Method:** `POST`
+- **Description:** Receives GitLab webhooks and forwards formatted messages to a Telegram bot.
+
+#### Headers
+
+- `x-gitlab-token`: Required for authorization (Set to `Lek1cTFVBDp/gY7uEp3g8WAdseIqdIetubQ961NYEu0=` in code).
+- `x-gitlab-event`: The GitLab event type.
+
+#### Query Parameters
+
+- `botToken`: Your Telegram Bot API token.
+- `chatId`: The target Telegram chat/channel ID.
+
+#### Supported Events
+
+- Push Hook, Tag Push Hook, Issue Hook, Note Hook, Merge Request Hook, Pipeline Hook, Job Hook, Deployment Hook, Release Hook, Wiki Page Hook, Feature Flag Hook, Milestone Hook, Vulnerability Hook.
+
+---
+
+## Running with Docker
+
+You can pull the pre-built image directly from [Docker Hub](https://hub.docker.com/r/sophoun/gitlab_webhook_to_telegram_bot_proxy).
+
+### Using Docker Run
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+docker run -d -p 3000:3000 sophoun/gitlab_webhook_to_telegram_bot_proxy:latest
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Using Docker Compose
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Create a `docker-compose.yml` file:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```yaml
+services:
+  gitlab-bot:
+    image: sophoun/gitlab_webhook_to_telegram_bot_proxy:latest
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+---
+```
 
-## Learn More
+## License
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

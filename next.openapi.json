@@ -1,0 +1,36 @@
+{
+  "openapi": "3.2",
+  "info": {
+    "title": "API Documentation",
+    "version": "1.0.0",
+    "description": "The OpenAPI specification for GitLab webhook to telegram bot"
+  },
+  "servers": [
+    {
+      "url": "https://sophoun.com/api",
+      "description": "The publich API endpoint for GitLab webhook to telegram bot"
+    },
+    {
+      "url": "http://localhost:3000/api",
+      "description": "Local development"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  },
+  "apiDir": "./app/api",
+  "schemaDir": "./app/api",
+  "schemaType": "zod",
+  "docsUrl": "api-docs",
+  "ui": "scalar",
+  "outputFile": "openapi.json",
+  "outputDir": "./public",
+  "includeOpenApiRoutes": true,
+  "debug": false
+}

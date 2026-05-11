@@ -1,0 +1,160 @@
+{
+  "openapi": "3.2.0",
+  "info": {
+    "title": "API Documentation",
+    "version": "1.0.0",
+    "description": "The OpenAPI specification for GitLab webhook to telegram bot"
+  },
+  "servers": [
+    {
+      "url": "https://sophoun.com/api",
+      "description": "The publich API endpoint for GitLab webhook to telegram bot"
+    },
+    {
+      "url": "http://localhost:3000/api",
+      "description": "Local development"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "GitLabWebhookToTelegramHeaders": {
+        "type": "object",
+        "properties": {
+          "x-gitlab-token": {
+            "type": "string",
+            "description": "The Default input form from GitLab webhook option."
+          },
+          "x-gitlab-event": {
+            "type": "string",
+            "description": "The Default GitLab event type."
+          }
+        },
+        "required": [
+          "x-gitlab-token",
+          "x-gitlab-event"
+        ]
+      },
+      "GitLabWebhookToTelegramParams": {
+        "type": "object",
+        "properties": {
+          "botToken": {
+            "type": "string",
+            "description": "Telegram bot token"
+          },
+          "chatId": {
+            "type": "string",
+            "description": "Telegram chat ID"
+          }
+        },
+        "required": [
+          "botToken",
+          "chatId"
+        ]
+      },
+      "GitLabWebhookToTelegramResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "object",
+            "properties": {
+              "success": {
+                "type": "boolean"
+              },
+              "code": {
+                "type": "string"
+              },
+              "msg": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "success"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
+      }
+    },
+    "responses": {}
+  },
+  "paths": {
+    "/v1/gitlab_webhook_to_telegram_bot": {
+      "post": {
+        "operationId": "post-v1-gitlab_webhook_to_telegram_bot",
+        "summary": "GitLab webhook to Telegram",
+        "description": "Send message via provided bot token to a specific conversion id. This will work with GitLab webhook only!",
+        "tags": [
+          "V1"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "botToken",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Telegram bot token"
+            },
+            "description": "Telegram bot token"
+          },
+          {
+            "in": "query",
+            "name": "chatId",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "Telegram chat ID"
+            },
+            "description": "Telegram chat ID"
+          },
+          {
+            "in": "header",
+            "name": "x-gitlab-token",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "The Default input form from GitLab webhook option."
+            },
+            "description": "The Default input form from GitLab webhook option."
+          },
+          {
+            "in": "header",
+            "name": "x-gitlab-event",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "The Default GitLab event type."
+            },
+            "description": "The Default GitLab event type."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitLabWebhookToTelegramResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "V1"
+    }
+  ]
+}
