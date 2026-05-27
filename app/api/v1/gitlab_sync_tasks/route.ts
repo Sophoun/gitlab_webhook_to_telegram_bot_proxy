@@ -40,7 +40,7 @@ function extractConfig(searchParams: URLSearchParams): Partial<Config> {
  * @response 200
  * @openapi
  */
-export async function GET(req: NextRequest) {
+export async function POST(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const rawConfig = extractConfig(searchParams);
 
