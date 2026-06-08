@@ -345,13 +345,30 @@ async function syncStatusToMaster(masterIid: string, config: Config) {
 
   const master = await masterRes.json();
 
+  // Check if update is actually needed
+  const currentStatusLabel = (master.labels || []).find((l: string) =>
+    l.startsWith("Status::"),
+  );
+  const isStatusChanged = currentStatusLabel !== overallStatus;
+  
+  // Normalize old table for comparison (remove timestamp line if exists)
+  const hasOldTable = master.description.includes("## 📊 Development Status");
+  const isTableChanged = !master.description.includes(tableRows.trim());
+
+  if (!isStatusChanged && !isTableChanged && hasOldTable) {
+    console.log(
+      `✅ No changes detected for Master Task #${masterIid}. Skipping update.`,
+    );
+    return "No changes detected. Sync skipped.";
+  }
+
   // Clean up description (remove old status blocks)
   const baseDesc = master.description
     .split("## 📊 Development Status")[0]
     .split("## 📊 Squad Development Status")[0]
     .trim();
 
-  const finalDesc = `${baseDesc}\n\n${fullTableBlock}\n\n_🕒 Last Sync: ${new Date().toLocaleString("en-KH")}_`;
+  const finalDesc = `${baseDesc}\n\n${fullTableBlock}\n\n_🕒 Last Sync: ${new Date().toLocaleString("en-KH")}_\n<!-- gitlab_sync_task_update -->`;
 
   // Update labels: remove existing Status:: labels and add the new calculated status
   const otherLabels = (master.labels || []).filter(

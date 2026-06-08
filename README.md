@@ -19,10 +19,29 @@ A lightweight proxy service to forward GitLab webhooks to Telegram notifications
 
 - `botToken`: Your Telegram Bot API token.
 - `chatId`: The target Telegram chat/channel ID.
+- `ignoreUsers`: (Optional) Comma-separated list of GitLab usernames or display names to ignore.
 
-#### Supported Events
+#### 🔇 Ignoring Specific Users (Optional)
 
-- Push Hook, Tag Push Hook, Issue Hook, Note Hook, Merge Request Hook, Pipeline Hook, Job Hook, Deployment Hook, Release Hook, Wiki Page Hook, Feature Flag Hook, Milestone Hook, Vulnerability Hook.
+If you want to suppress notifications from specific users (like bot accounts or your own account for specific webhooks), you can use the `ignoreUsers` parameter. This matches against **GitLab usernames** (e.g., `johndoe`) or **GitLab display names** (e.g., `John`).
+
+**How to handle spaces:**
+If a display name has spaces, simply use them as-is or replace them with `%20` for proper URL encoding. The proxy will automatically trim any extra spaces around the commas.
+
+**Example:**
+`...&ignoreUsers=bot_user, John Doe, my_username`
+or encoded:
+`...&ignoreUsers=bot_user,John%20Doe,my_username`
+
+#### 🤖 Smart Sync Filtering
+
+The bot proxy automatically detects and silences notifications for automated status updates from the `gitlab_sync_tasks` tool. Even if the update is done using your Personal Access Token, it will skip the notification if:
+
+1. The update contains the `## 📊 Development Status` table or the hidden sync marker (`<!-- gitlab_sync_task_update -->`).
+2. The only changes detected are in `description`, `labels`, or `updated_at`.
+3. No significant changes like assignee or state changes were made.
+
+This ensures you don't get spammed by the sync task while still getting alerts for manual edits.
 
 ### GitLab Sync Tasks (Generic)
 
@@ -41,11 +60,13 @@ To keep this tool project-agnostic, all configurations are passed as query param
 - `secret`: (Optional) A secret token for validating the `x-gitlab-token` header.
 - `masterIid`: (Optional for POST) The IID of the Master Ticket.
 
-#### Example Webhook URL:
+#### Example Webhook URL
+
 `https://your-proxy.com/api/v1/gitlab_sync_tasks?pat=YOUR_PAT&mgmtId=123&namespace=my-group&secret=MY_SECRET`
 
-#### Usage:
-1.  **POST Method (Webhook):** Add the URL to your GitLab sub-project webhooks (Issue/Note events).
+#### Usage
+
+1. **POST Method (Webhook):** Add the URL to your GitLab sub-project webhooks (Issue/Note events).
     - The `masterIid` is optional. The bot will automatically discover the Master Ticket using:
         - **Native Links:** Any GitLab "Linked Issue" (Relates to/Blocks) pointing to your Management Project.
         - **Mentions:** Any system notes indicating the sub-issue was mentioned in your Management Project.

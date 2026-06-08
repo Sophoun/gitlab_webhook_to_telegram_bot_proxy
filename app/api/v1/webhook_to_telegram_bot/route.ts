@@ -83,6 +83,44 @@ export async function POST(req: NextRequest) {
   const projectName =
     body.project?.name || body.repository?.name || "Unknown Project";
   const userName = body.user_name || body.user?.name || "Someone";
+  const userUsername = body.user?.username || "";
+
+  // 1. Filter by ignored users (bot accounts)
+  const ignoreUsers = searchParams.get("ignoreUsers")?.split(",").map(u => u.trim()) || [];
+  if (
+    ignoreUsers.includes(userName) ||
+    (userUsername && ignoreUsers.includes(userUsername))
+  ) {
+    console.log(`⏭️ Skipping notification for ignored user: ${userName}`);
+    return NextResponse.json(
+      GitLabWebhookToTelegramResponse.parse({
+        status: { success: true },
+      }),
+    );
+  }
+
+  // 2. Smart filter for gitlab_sync_tasks automated updates
+  const isSyncUpdate =
+    body.object_attributes?.description?.includes("<!-- gitlab_sync_task_update -->") ||
+    (body.object_attributes?.description?.includes("## 📊 Development Status") &&
+      body.object_attributes?.description?.includes("_🕒 Last Sync:"));
+
+  if (isSyncUpdate && body.object_attributes?.action === "update") {
+    // Only skip if the only changes are description, labels or updated_at
+    const changedKeys = Object.keys(body.changes || {});
+    const isOnlySyncFields = changedKeys.every((k) =>
+      ["description", "labels", "updated_at"].includes(k),
+    );
+
+    if (isOnlySyncFields) {
+      console.log(`⏭️ Skipping automated sync update notification.`);
+      return NextResponse.json(
+        GitLabWebhookToTelegramResponse.parse({
+          status: { success: true },
+        }),
+      );
+    }
+  }
 
   // Base message
   let message = `📂 *Project:* ${projectName}\n👤 *User:* ${userName}\n\n`;
