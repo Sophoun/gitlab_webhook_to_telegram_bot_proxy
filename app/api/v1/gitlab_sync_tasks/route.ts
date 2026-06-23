@@ -69,6 +69,11 @@ export async function POST(req: NextRequest) {
 
   try {
     body = await req.json();
+    const eventType = req.headers.get("x-gitlab-event") || "unknown";
+    const objectKind = body.object_kind || "unknown";
+    const subProjectId = body.project?.id || "unknown";
+    const subIssueIid = body.object_attributes?.iid || body.issue?.iid || "unknown";
+    console.log(`📥 Received ${eventType} (object_kind: ${objectKind}) for project ${subProjectId} issue #${subIssueIid}`);
   } catch (_err) {
     // Body is optional if masterIid is provided in query params
     console.log(
@@ -82,23 +87,40 @@ export async function POST(req: NextRequest) {
     const note = body.object_attributes?.note || "";
     const content = `${description} ${note}`;
     const match = content.match(/(?:Master|Parent)(?:\s+Ticket)?:\s*#(\d+)/i);
-    if (match) masterIid = match[1];
+    if (match) {
+      masterIid = match[1];
+      console.log(`✅ Found Master Ticket #${masterIid} from description/note regex.`);
+    }
   }
 
   // 2. Try Auto-Discovery from native links/mentions
   if (!masterIid && body) {
     const subProjectId = body.project?.id;
-    const subIssueIid = body.object_attributes?.iid || body.issue?.iid;
+    
+    // Note webhooks have note ID in object_attributes.iid, but issue ID is in body.issue.iid
+    // Issue webhooks have issue ID in object_attributes.iid
+    const objectKind = body.object_kind;
+    let subIssueIid: number | undefined;
+    
+    if (objectKind === "note") {
+      subIssueIid = body.issue?.iid || body.merge_request?.iid;
+      if (!subIssueIid) {
+        console.log(`⏭️ Skipping note webhook: Could not determine noteable IID.`);
+      }
+    } else {
+      subIssueIid = body.object_attributes?.iid;
+    }
 
     if (subProjectId && subIssueIid) {
       console.log(
-        `🔍 POST Discovery: Attempting auto-discovery for Master Ticket...`,
+        `🔍 POST Discovery: Attempting auto-discovery for Master Ticket from ${objectKind} event...`,
       );
       masterIid = await discoverMasterIid(subProjectId, subIssueIid, config);
     }
   }
 
   if (!masterIid) {
+    console.log(`❌ No master ticket found. Returning 400.`);
     return NextResponse.json(
       {
         error:
@@ -144,7 +166,10 @@ async function discoverMasterIid(
           String(l.project_id) === String(mgmtId) ||
           l.web_url.includes(`/projects/${mgmtId}/`),
       );
-      if (masterLink) return String(masterLink.iid);
+      if (masterLink) {
+        console.log(`✅ Discovery Strategy A: Found master ticket #${masterLink.iid}`);
+        return String(masterLink.iid);
+      }
     }
   } catch (err) {
     console.error("Discovery Strategy A failed:", err);
@@ -165,6 +190,7 @@ async function discoverMasterIid(
             const projectPath = match[1];
             const iid = match[2];
             if (!projectPath || projectPath.includes(String(mgmtId))) {
+              console.log(`✅ Discovery Strategy B: Found master ticket #${iid} from system notes.`);
               return iid;
             }
           }
@@ -175,6 +201,7 @@ async function discoverMasterIid(
     console.error("Discovery Strategy B failed:", err);
   }
 
+  console.log(`❌ Discovery failed: No master ticket found for sub-issue ${subProjectId}#${subIssueIid}.`);
   return null;
 }
 
@@ -293,6 +320,8 @@ async function syncStatusToMaster(masterIid: string, config: Config) {
         statusIcon = "✅";
 
       tableRows += `| ${icon} \`${projectLabel}\` | ${task.title} | ${statusIcon} \`${statusLabel}\` | ${ref} |\n`;
+    } else {
+      console.error(`❌ Failed to fetch sub-task ${ref}: ${res.status} ${res.statusText}`);
     }
   }
 
