@@ -6,28 +6,35 @@ import { POST } from "./route";
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
 
+// Helper to create a mock request with status changes
+function createRequest(options: {
+  url?: string;
+  headers?: Record<string, string>;
+  body?: any;
+}) {
+  const url =
+    options.url ||
+    "http://localhost/api/v1/gitlab_sync_tasks?pat=test&mgmtId=123&namespace=test-group";
+  const headers = new Headers(options.headers || {});
+
+  // Default to a label change if changes field is not provided
+  const body = options.body || {};
+  if (body.changes === undefined && body.object_kind !== "note") {
+    body.changes = { labels: { previous: [], current: [{ title: "Status::To Do" }] } };
+  }
+
+  return new Request(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  }) as any;
+}
+
 describe("POST /api/v1/gitlab_sync_tasks", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockFetch.mockReset();
   });
-
-  const createRequest = (options: {
-    url?: string;
-    headers?: Record<string, string>;
-    body?: any;
-  }) => {
-    const url =
-      options.url ||
-      "http://localhost/api/v1/gitlab_sync_tasks?pat=test&mgmtId=123&namespace=test-group";
-    const headers = new Headers(options.headers || {});
-
-    return new Request(url, {
-      method: "POST",
-      headers,
-      body: options.body ? JSON.stringify(options.body) : undefined,
-    }) as any;
-  };
 
   describe("Configuration Validation", () => {
     it("should return 400 when required params are missing", async () => {
@@ -58,22 +65,192 @@ describe("POST /api/v1/gitlab_sync_tasks", () => {
     });
   });
 
-  describe("Master Ticket Discovery", () => {
+  describe("Early Exit - Skip Non-Status Changes", () => {
     const baseUrl =
-      "http://localhost/api/v1/gitlab_sync_tasks?pat=test&mgmtId=123&namespace=test-group";
+      "http://localhost/api/v1/gitlab_sync_tasks?pat=test&mgmtId=123&namespace=test-group&masterIid=37";
 
-    it("should extract masterIid from query params", async () => {
-      // Mock: notes, links, master issue
+    it("should skip when only title changed", async () => {
+      const req = createRequest({
+        url: baseUrl,
+        body: {
+          object_kind: "issue",
+          project: { id: 456 },
+          object_attributes: { iid: 1 },
+          changes: { title: { previous: "Old", current: "New" } },
+        },
+      });
+
+      const res = await POST(req);
+      const json = await res.json();
+
+      expect(json.skipped).toBe(true);
+      expect(json.reason).toBe("No status-related change");
+      expect(json.changedFields).toContain("title");
+    });
+
+    it("should skip when only description changed", async () => {
+      const req = createRequest({
+        url: baseUrl,
+        body: {
+          object_kind: "issue",
+          project: { id: 456 },
+          object_attributes: { iid: 1 },
+          changes: { description: { previous: "Old", current: "New" } },
+        },
+      });
+
+      const res = await POST(req);
+      const json = await res.json();
+
+      expect(json.skipped).toBe(true);
+      expect(json.reason).toBe("No status-related change");
+    });
+
+    it("should proceed when labels changed", async () => {
       mockFetch
         .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
         .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
         .mockResolvedValueOnce({
           ok: true,
-          json: () =>
-            Promise.resolve({
-              labels: [],
-              description: "",
-            }),
+          json: () => Promise.resolve({ labels: ["Status::To Do"], description: "" }),
+        });
+
+      const req = createRequest({
+        url: baseUrl,
+        body: {
+          object_kind: "issue",
+          project: { id: 456 },
+          object_attributes: { iid: 1 },
+          changes: { labels: { previous: [], current: [{ title: "Status::In Progress" }] } },
+        },
+      });
+
+      const res = await POST(req);
+      const json = await res.json();
+
+      expect(json.skipped).toBeUndefined();
+      expect(json.success).toBe(true);
+    });
+
+    it("should proceed when assignees changed", async () => {
+      mockFetch
+        .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
+        .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ labels: ["Status::To Do"], description: "" }),
+        });
+
+      const req = createRequest({
+        url: baseUrl,
+        body: {
+          object_kind: "issue",
+          project: { id: 456 },
+          object_attributes: { iid: 1 },
+          changes: { assignees: { previous: [], current: [{ name: "John" }] } },
+        },
+      });
+
+      const res = await POST(req);
+      const json = await res.json();
+
+      expect(json.skipped).toBeUndefined();
+      expect(json.success).toBe(true);
+    });
+
+    it("should proceed when state changed", async () => {
+      mockFetch
+        .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
+        .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ labels: ["Status::To Do"], description: "" }),
+        });
+
+      const req = createRequest({
+        url: baseUrl,
+        body: {
+          object_kind: "issue",
+          project: { id: 456 },
+          object_attributes: { iid: 1 },
+          changes: { state_id: { previous: 1, current: 2 } },
+        },
+      });
+
+      const res = await POST(req);
+      const json = await res.json();
+
+      expect(json.skipped).toBeUndefined();
+      expect(json.success).toBe(true);
+    });
+  });
+
+  describe("Skip Comment Webhooks", () => {
+    const baseUrl =
+      "http://localhost/api/v1/gitlab_sync_tasks?pat=test&mgmtId=123&namespace=test-group&masterIid=37";
+
+    it("should skip note webhook without Master ticket mention", async () => {
+      const req = createRequest({
+        url: baseUrl,
+        body: {
+          object_kind: "note",
+          project: { id: 456 },
+          object_attributes: {
+            iid: 999,
+            note: "This is just a regular comment",
+          },
+          issue: { iid: 5 },
+        },
+      });
+
+      const res = await POST(req);
+      const json = await res.json();
+
+      expect(json.skipped).toBe(true);
+      expect(json.reason).toContain("No Master ticket mention");
+    });
+
+    it("should allow note webhook WITH Master ticket mention", async () => {
+      mockFetch
+        .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
+        .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ labels: ["Status::To Do"], description: "" }),
+        });
+
+      const req = createRequest({
+        url: baseUrl,
+        body: {
+          object_kind: "note",
+          project: { id: 456 },
+          object_attributes: {
+            iid: 999,
+            note: "Hey check Master: #42 for context",
+          },
+          issue: { iid: 5 },
+        },
+      });
+
+      const res = await POST(req);
+      const json = await res.json();
+
+      expect(json.skipped).toBeUndefined();
+      expect(json.success).toBe(true);
+    });
+  });
+
+  describe("Master Ticket Discovery", () => {
+    const baseUrl =
+      "http://localhost/api/v1/gitlab_sync_tasks?pat=test&mgmtId=123&namespace=test-group";
+
+    it("should extract masterIid from query params", async () => {
+      mockFetch
+        .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
+        .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ labels: [], description: "" }),
         });
 
       const req = createRequest({
@@ -97,11 +274,7 @@ describe("POST /api/v1/gitlab_sync_tasks", () => {
         .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
         .mockResolvedValueOnce({
           ok: true,
-          json: () =>
-            Promise.resolve({
-              labels: [],
-              description: "",
-            }),
+          json: () => Promise.resolve({ labels: [], description: "" }),
         });
 
       const req = createRequest({
@@ -141,10 +314,6 @@ describe("POST /api/v1/gitlab_sync_tasks", () => {
     });
 
     it("should discover master ticket via native links", async () => {
-      // 1. Discovery: links API for sub-issue -> finds master
-      // 2. Sync: notes API for master
-      // 3. Sync: links API for master
-      // 4. Sync: master issue fetch
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
@@ -161,11 +330,7 @@ describe("POST /api/v1/gitlab_sync_tasks", () => {
         .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
         .mockResolvedValueOnce({
           ok: true,
-          json: () =>
-            Promise.resolve({
-              labels: [],
-              description: "",
-            }),
+          json: () => Promise.resolve({ labels: [], description: "" }),
         });
 
       const req = createRequest({
@@ -185,17 +350,13 @@ describe("POST /api/v1/gitlab_sync_tasks", () => {
 
     it("should discover master ticket via system notes mentions", async () => {
       mockFetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve([]), // No links
-        })
+        .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
         .mockResolvedValueOnce({
           ok: true,
           json: () =>
             Promise.resolve([
               {
                 system: true,
-                // Note: project path must contain mgmtId (123) or be empty
                 body: "mentioned in issue test-group/123#77",
               },
             ]),
@@ -204,11 +365,7 @@ describe("POST /api/v1/gitlab_sync_tasks", () => {
         .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
         .mockResolvedValueOnce({
           ok: true,
-          json: () =>
-            Promise.resolve({
-              labels: [],
-              description: "",
-            }),
+          json: () => Promise.resolve({ labels: [], description: "" }),
         });
 
       const req = createRequest({
@@ -227,19 +384,14 @@ describe("POST /api/v1/gitlab_sync_tasks", () => {
     });
 
     it("should handle note webhooks correctly (using body.issue.iid)", async () => {
-      // Discovery calls then syncStatusToMaster calls
       mockFetch
-        .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) }) // discovery links
-        .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) }) // discovery notes
-        .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) }) // sync notes
-        .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) }) // sync links
+        .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
+        .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
+        .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
+        .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
         .mockResolvedValueOnce({
           ok: true,
-          json: () =>
-            Promise.resolve({
-              labels: [],
-              description: "",
-            }),
+          json: () => Promise.resolve({ labels: [], description: "" }),
         });
 
       const req = createRequest({
@@ -247,8 +399,11 @@ describe("POST /api/v1/gitlab_sync_tasks", () => {
         body: {
           object_kind: "note",
           project: { id: 456 },
-          object_attributes: { iid: 999 }, // This is note ID, not issue ID
-          issue: { iid: 5 }, // This is the actual issue ID
+          object_attributes: {
+            iid: 999,
+            note: "Please check Master: #42",
+          },
+          issue: { iid: 5 },
         },
       });
 
@@ -266,7 +421,7 @@ describe("POST /api/v1/gitlab_sync_tasks", () => {
 
     it("should calculate overall status as Integrated when all done", async () => {
       mockFetch
-        .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) }) // notes
+        .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
         .mockResolvedValueOnce({
           ok: true,
           json: () =>
@@ -277,27 +432,18 @@ describe("POST /api/v1/gitlab_sync_tasks", () => {
                 },
               },
             ]),
-        }) // links
+        })
         .mockResolvedValueOnce({
           ok: true,
           json: () =>
-            Promise.resolve({
-              labels: ["Status::Integrated"],
-              title: "Task 1",
-            }),
-        }) // sub-task
+            Promise.resolve({ labels: ["Status::Integrated"], title: "Task 1" }),
+        })
         .mockResolvedValueOnce({
           ok: true,
           json: () =>
-            Promise.resolve({
-              labels: ["Status::To Do"],
-              description: "",
-            }),
-        }) // master fetch
-        .mockResolvedValueOnce({
-          ok: true,
-          json: () => Promise.resolve({}),
-        }); // master update (PUT)
+            Promise.resolve({ labels: ["Status::To Do"], description: "" }),
+        })
+        .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({}) });
 
       const req = createRequest({
         url: baseUrl,
@@ -321,7 +467,7 @@ describe("POST /api/v1/gitlab_sync_tasks", () => {
         "| 🚧 `sub-project` | Task 1 | 🚧 `Status::To Do` | test-group/sub-project#5 |\n";
 
       mockFetch
-        .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) }) // notes
+        .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve([]) })
         .mockResolvedValueOnce({
           ok: true,
           json: () =>
@@ -332,15 +478,12 @@ describe("POST /api/v1/gitlab_sync_tasks", () => {
                 },
               },
             ]),
-        }) // links
+        })
         .mockResolvedValueOnce({
           ok: true,
           json: () =>
-            Promise.resolve({
-              labels: ["Status::To Do"],
-              title: "Task 1",
-            }),
-        }) // sub-task
+            Promise.resolve({ labels: ["Status::To Do"], title: "Task 1" }),
+        })
         .mockResolvedValueOnce({
           ok: true,
           json: () =>
@@ -348,7 +491,7 @@ describe("POST /api/v1/gitlab_sync_tasks", () => {
               labels: ["Status::To Do"],
               description: existingTable,
             }),
-        }); // master
+        });
 
       const req = createRequest({
         url: baseUrl,

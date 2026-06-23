@@ -141,7 +141,7 @@ describe("POST /api/v1/webhook_to_telegram_bot", () => {
       expect(json.status.success).toBe(true);
     });
 
-    it("should SKIP notification when user_name matches ignoreUsers", async () => {
+    it("should send notification with robot marker when user_name matches ignoreUsers", async () => {
       const req = createRequest({
         url: `${baseUrl}&ignoreUsers=John Doe`,
         headers: {
@@ -165,11 +165,21 @@ describe("POST /api/v1/webhook_to_telegram_bot", () => {
 
       expect(json.status.success).toBe(true);
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Skipping notification for ignored user: John Doe")
+        expect.stringContaining("Ignored user detected: John Doe")
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.stringContaining("🤖 *[AUTOMATED UPDATE]*"),
+        expect.any(Object)
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.stringContaining("🤖 Robot/Bot"),
+        expect.any(Object)
       );
     });
 
-    it("should SKIP notification when username matches ignoreUsers", async () => {
+    it("should send notification with robot marker when username matches ignoreUsers", async () => {
       const req = createRequest({
         url: `${baseUrl}&ignoreUsers=johndoe`,
         headers: {
@@ -193,7 +203,17 @@ describe("POST /api/v1/webhook_to_telegram_bot", () => {
 
       expect(json.status.success).toBe(true);
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Skipping notification for ignored user: John Doe")
+        expect.stringContaining("Ignored user detected: John Doe")
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.stringContaining("🤖 *[AUTOMATED UPDATE]*"),
+        expect.any(Object)
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.stringContaining("🤖 Robot/Bot"),
+        expect.any(Object)
       );
     });
 
@@ -246,7 +266,17 @@ describe("POST /api/v1/webhook_to_telegram_bot", () => {
 
       expect(json.status.success).toBe(true);
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Skipping notification for ignored user: Bob")
+        expect.stringContaining("Ignored user detected: Bob")
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.stringContaining("🤖 *[AUTOMATED UPDATE]*"),
+        expect.any(Object)
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.stringContaining("🤖 Robot/Bot"),
+        expect.any(Object)
       );
     });
 
@@ -278,7 +308,7 @@ describe("POST /api/v1/webhook_to_telegram_bot", () => {
       expect(json.status.success).toBe(true);
     });
 
-    it("should skip when user matches with URL-encoded spaces", async () => {
+    it("should send with robot marker when user matches with URL-encoded spaces", async () => {
       const req = createRequest({
         url: `${baseUrl}&ignoreUsers=John%20Doe`,
         headers: {
@@ -302,7 +332,17 @@ describe("POST /api/v1/webhook_to_telegram_bot", () => {
 
       expect(json.status.success).toBe(true);
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Skipping notification for ignored user: John Doe")
+        expect.stringContaining("Ignored user detected: John Doe")
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.stringContaining("🤖 *[AUTOMATED UPDATE]*"),
+        expect.any(Object)
+      );
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.stringContaining("🤖 Robot/Bot"),
+        expect.any(Object)
       );
     });
   });

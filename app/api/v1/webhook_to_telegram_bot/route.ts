@@ -85,18 +85,14 @@ export async function POST(req: NextRequest) {
   const userName = body.user_name || body.user?.name || "Someone";
   const userUsername = body.user?.username || "";
 
-  // 1. Filter by ignored users (bot accounts)
+  // 1. Check if user is in ignore list (bot accounts)
   const ignoreUsers = searchParams.get("ignoreUsers")?.split(",").map(u => u.trim()) || [];
-  if (
+  const isIgnoredUser =
     ignoreUsers.includes(userName) ||
-    (userUsername && ignoreUsers.includes(userUsername))
-  ) {
-    console.log(`⏭️ Skipping notification for ignored user: ${userName}`);
-    return NextResponse.json(
-      GitLabWebhookToTelegramResponse.parse({
-        status: { success: true },
-      }),
-    );
+    (userUsername && ignoreUsers.includes(userUsername));
+
+  if (isIgnoredUser) {
+    console.log(`🤖 Ignored user detected: ${userName} — sending as robot update`);
   }
 
   // 2. Smart filter for gitlab_sync_tasks automated updates
@@ -123,7 +119,9 @@ export async function POST(req: NextRequest) {
   }
 
   // Base message
-  let message = `📂 *Project:* ${projectName}\n👤 *User:* ${userName}\n\n`;
+  const displayUser = isIgnoredUser ? "🤖 Robot/Bot" : userName;
+  const robotMarker = isIgnoredUser ? "🤖 *[AUTOMATED UPDATE]*\n" : "";
+  let message = `${robotMarker}📂 *Project:* ${projectName}\n👤 *User:* ${displayUser}\n\n`;
 
   // Handle all major event types based on GitLab Webhook Headers
   console.log(`🔔 *GitLab Event:* ${eventType}`);

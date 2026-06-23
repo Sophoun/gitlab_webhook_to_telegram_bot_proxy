@@ -74,6 +74,36 @@ export async function POST(req: NextRequest) {
     const subProjectId = body.project?.id || "unknown";
     const subIssueIid = body.object_attributes?.iid || body.issue?.iid || "unknown";
     console.log(`📥 Received ${eventType} (object_kind: ${objectKind}) for project ${subProjectId} issue #${subIssueIid}`);
+
+    // Skip if this is not a status-related change
+    if (body.changes) {
+      const changedKeys = Object.keys(body.changes);
+      const statusKeys = ["labels", "state_id", "milestone_id", "assignee_ids", "assignees"];
+      const hasStatusChange = changedKeys.some((k) => statusKeys.includes(k));
+
+      if (!hasStatusChange) {
+        console.log(`⏭️ Skipping: No status-related change detected. Changed fields: ${changedKeys.join(", ")}`);
+        return NextResponse.json({
+          skipped: true,
+          reason: "No status-related change",
+          changedFields: changedKeys,
+        });
+      }
+    }
+
+    // Skip note/comment webhooks unless they explicitly mention a Master ticket
+    if (objectKind === "note" || objectKind === "merge_request") {
+      const noteContent = body.object_attributes?.note || "";
+      const mentionsMaster = /(?:Master|Parent)(?:\s+Ticket)?:\s*#\d+/i.test(noteContent);
+
+      if (!mentionsMaster) {
+        console.log(`⏭️ Skipping ${objectKind} webhook: No Master ticket mention found.`);
+        return NextResponse.json({
+          skipped: true,
+          reason: `No Master ticket mention in ${objectKind}`,
+        });
+      }
+    }
   } catch (_err) {
     // Body is optional if masterIid is provided in query params
     console.log(
