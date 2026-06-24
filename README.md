@@ -1,103 +1,270 @@
 # GitLab Webhook to Telegram Bot Proxy
 
-A lightweight proxy service to forward GitLab webhooks to Telegram notifications.
+A lightweight proxy service that connects GitLab webhooks to Telegram notifications, with an optional sync feature to aggregate child project statuses into a master ticket.
 
-## API Documentation
+---
 
-### GitLab Webhook to Telegram
+## IMPORTANT: What is `:projectId`?
 
-- **Path:** `/api/v1/gitlab_webhook_to_telegram_bot`
-- **Method:** `POST`
-- **Description:** Receives GitLab webhooks and forwards formatted messages to a Telegram bot.
-
-#### Headers
-
-- `x-gitlab-token`: Required for authorization (Set to `Lek1cTFVBDp/gY7uEp3g8WAdseIqdIetubQ961NYEu0=` in code).
-- `x-gitlab-event`: The GitLab event type.
-
-#### Query Parameters
-
-- `botToken`: Your Telegram Bot API token.
-- `chatId`: The target Telegram chat/channel ID.
-- `ignoreUsers`: (Optional) Comma-separated list of GitLab usernames or display names to ignore.
-
-#### 🔇 Ignoring Specific Users (Optional)
-
-If you want to suppress notifications from specific users (like bot accounts or your own account for specific webhooks), you can use the `ignoreUsers` parameter. This matches against **GitLab usernames** (e.g., `johndoe`) or **GitLab display names** (e.g., `John`).
-
-**How to handle spaces:**
-If a display name has spaces, simply use them as-is or replace them with `%20` for proper URL encoding. The proxy will automatically trim any extra spaces around the commas.
+> **`:projectId` is NOT a GitLab project ID. It is the database row ID of your project configuration.**
+>
+> After you create a project in the UI (or via API), the database assigns it an auto-incremented number like `1`, `2`, `3`. This is what you use in webhook URLs.
+>
+> Each `:projectId` config stores your management project ID (`mgmt_id`) internally. Multiple GitLab projects can share the same `:projectId` if they belong to the same logical group.
 
 **Example:**
-`...&ignoreUsers=bot_user, John Doe, my_username`
-or encoded:
-`...&ignoreUsers=bot_user,John%20Doe,my_username`
+```
+You create "Mobile App" config in UI → gets DB ID: 1
 
-#### 🤖 Smart Sync Filtering
-
-The bot proxy automatically detects and silences notifications for automated status updates from the `gitlab_sync_tasks` tool. Even if the update is done using your Personal Access Token, it will skip the notification if:
-
-1. The update contains the `## 📊 Development Status` table or the hidden sync marker (`<!-- gitlab_sync_task_update -->`).
-2. The only changes detected are in `description`, `labels`, or `updated_at`.
-3. No significant changes like assignee or state changes were made.
-
-This ensures you don't get spammed by the sync task while still getting alerts for manual edits.
-
-### GitLab Sync Tasks (Generic)
-
-- **Path:** `/api/v1/gitlab_sync_tasks`
-- **Method:** `POST`
-- **Description:** Automatically syncs sub-task statuses from multiple sub-projects to a central "Master Ticket" or "Issue Board" table.
-
-#### Configuration (Passed via Query Parameters)
-
-To keep this tool project-agnostic, all configurations are passed as query parameters in the URL:
-
-- `apiBase`: (Optional) Your GitLab API URL. Defaults to `https://gitlab.com/api/v4`.
-- `pat`: **Required.** Your GitLab Personal Access Token.
-- `mgmtId`: **Required.** The Project ID where the Master Ticket resides.
-- `namespace`: **Required.** The default namespace/group for your sub-projects.
-- `secret`: (Optional) A secret token for validating the `x-gitlab-token` header.
-- `masterIid`: (Optional for POST) The IID of the Master Ticket.
-
-#### Example Webhook URL
-
-`https://your-proxy.com/api/v1/gitlab_sync_tasks?pat=YOUR_PAT&mgmtId=123&namespace=my-group&secret=MY_SECRET`
-
-#### Usage
-
-1. **POST Method (Webhook):** Add the URL to your GitLab sub-project webhooks (Issue/Note events).
-    - The `masterIid` is optional. The bot will automatically discover the Master Ticket using:
-        - **Native Links:** Any GitLab "Linked Issue" (Relates to/Blocks) pointing to your Management Project.
-        - **Mentions:** Any system notes indicating the sub-issue was mentioned in your Management Project.
-        - **Regex:** Searching for `Master: #123` in the issue description/notes.
+Child iOS GitLab project (ID: 456)     webhook → /api/v1/gitlab_sync_tasks/1
+Child Android GitLab project (ID: 789)  webhook → /api/v1/gitlab_sync_tasks/1
+Main Board GitLab project (ID: 999)     webhook → /api/v1/webhook_to_telegram_bot/1
+```
 
 ---
 
-## Running with Docker
+## Architecture
 
-You can pull the pre-built image directly from [Docker Hub](https://hub.docker.com/r/sophoun/gitlab_webhook_to_telegram_bot_proxy).
+```
+GitLab Child Project ──webhook──> /api/v1/gitlab_sync_tasks/:projectId
+                                         │
+                                         ▼
+                              SQLite DB (config + logs)
+                                         │
+                                         ▼
+GitLab Main Board <──update── Sync Status Aggregator
+       │
+   webhook
+       ▼
+/api/v1/webhook_to_telegram_bot/:projectId
+       │
+       ▼
+   Telegram
+```
 
-### Using Docker Run
+---
+
+## Features
+
+### 1. Telegram Notifications (`/api/v1/webhook_to_telegram_bot/:projectId`)
+
+Forwards GitLab webhooks to a Telegram channel/group.
+
+**Supported events:**
+
+- Issue created/updated/closed/reopened
+- Merge requests
+- Comments (notes)
+- Pushes, tags, pipelines, deployments
+- Releases, wiki pages, milestones
+- Vulnerability alerts
+
+**Smart filtering:**
+
+- **Robot updates**: Users in the `ignore_users` list are flagged as `🤖 [AUTOMATED UPDATE]` instead of being silently dropped
+- **Sync spam filter**: Updates that only change `description`, `labels`, or `updated_at` (from the sync task itself) are skipped
+- **Inline buttons**: Every message includes quick-action buttons (View Issue, View Project, etc.)
+
+### 2. Status Sync (`/api/v1/gitlab_sync_tasks/:projectId`)
+
+Aggregates sub-task statuses from child projects into a central "Master Ticket".
+
+**What it does:**
+
+- Discovers linked issues via GitLab native links or mention notes
+- Builds a markdown status table in the master ticket description
+- Auto-calculates overall status: `Status::To Do` → `Status::In Progress` → `Status::Integrated`
+- Only syncs on **status-relevant changes** (labels, assignees, state, milestones)
+- Skips comment webhooks unless they explicitly mention `Master: #123`
+
+---
+
+## Configuration
+
+All configuration is stored in a local SQLite database (`data/app.db`).
+
+### Via Web UI
+
+Open `http://<your-host>/` to access the dashboard.
+
+1. Click **Add Project**
+2. Fill in the form:
+   - **GitLab PAT**: Personal Access Token with `api` scope
+   - **Management Project ID**: The GitLab project ID where your Master Ticket lives
+   - **Namespace**: Your GitLab group/namespace
+   - **Workflow Labels**: Map your GitLab board labels to sync categories
+     - **To Do**: Labels that mean "not started" (default: `Backlog, Refinement, Ready for Dev`)
+     - **In Progress**: Labels that mean "in progress" (default: `In Progress, Peer Review, Testing/QA`)
+     - **Integrated**: Labels that mean "done" (default: `Completed, Closed`)
+   - **Telegram Bot Token**: From [@BotFather](https://t.me/botfather)
+   - **Telegram Chat ID**: Group/channel ID (e.g., `-1001234567890`)
+   - **Ignore Users**: Comma-separated list of usernames to flag as robot updates
+   - **Webhook Secret**: Auto-generated secret for validating `X-Gitlab-Token` header
+  3. Save
+4. Click **URLs** on your project to get the webhook URLs
+
+### Via API
 
 ```bash
-docker run -d -p 3000:3000 sophoun/gitlab_webhook_to_telegram_bot_proxy:latest
+curl -X POST http://localhost:3000/api/projects \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "My Project",
+    "gitlab_pat": "glpat-xxx",
+    "mgmt_id": "456",
+    "namespace": "my-group",
+    "telegram_bot_token": "123:ABC",
+    "telegram_chat_id": "-1001234567890",
+    "ignore_users": "bot_user, ci_user"
+  }'
 ```
 
-### Using Docker Compose
-
-Create a `docker-compose.yml` file:
-
-```yaml
-services:
-  gitlab-bot:
-    image: sophoun/gitlab_webhook_to_telegram_bot_proxy:latest
-    ports:
-      - "3000:3000"
-    restart: unless-stopped
 ---
+
+## GitLab Webhook Setup
+
+### Understanding the IDs
+
+| ID | What it is | Where you see it |
+|----|-----------|-----------------|
+| **`:projectId`** | **Database row ID** (e.g., `1`, `2`) | In your proxy dashboard, used in webhook URLs |
+| `mgmt_id` | GitLab project ID of your Main Board | In GitLab project settings |
+
+### Main Board (Telegram notifications)
+
+1. Go to **Project Settings → Webhooks**
+2. URL: `http://your-proxy.com/api/v1/webhook_to_telegram_bot/1`
+   - Replace `1` with your **database project ID** from the dashboard
+3. Trigger: **Issues**, **Comments**, **Merge requests** (select what you want)
+4. Secret Token: Copy from the **Webhook URLs** dialog in the dashboard
+
+### Child Projects (Status sync)
+
+1. Go to **Project Settings → Webhooks**
+2. URL: `http://your-proxy.com/api/v1/gitlab_sync_tasks/1`
+   - Replace `1` with your **database project ID** from the dashboard
+3. Trigger: **Issues**
+4. Secret Token: Copy from the **Webhook URLs** dialog in the dashboard
+
+**Note:** Multiple GitLab child projects can point to the same `:projectId` if they share the same management project and Telegram channel.
+
+---
+
+## Data Model
+
+### Projects Table
+
+| Column | Description |
+|--------|-------------|
+| `id` | Auto-generated project identifier (used in webhook URLs) |
+| `name` | Display name |
+| `gitlab_api_base` | GitLab API URL (default: `https://gitlab.com/api/v4`) |
+| `gitlab_pat` | Personal Access Token |
+| `mgmt_id` | Management project ID (where master ticket lives) |
+| `namespace` | GitLab namespace for sub-projects |
+| `master_iid` | Master ticket IID (optional, auto-discovered if empty) |
+| `telegram_bot_token` | Telegram bot token |
+| `telegram_chat_id` | Telegram chat/channel ID |
+| `ignore_users` | Comma-separated usernames |
+| `webhook_secret` | Auto-generated validation secret (required) |
+| `labels_todo` | Labels mapped to "To Do" category |
+| `labels_in_progress` | Labels mapped to "In Progress" category |
+| `labels_integrated` | Labels mapped to "Integrated" category |
+
+### Workflow Label Mapping
+
+The sync task reads labels from child issues and maps them to one of three categories:
+
+| Category | Default Labels | Meaning |
+|----------|---------------|---------|
+| **To Do** | `Backlog`, `Refinement`, `Ready for Dev` | Not started |
+| **In Progress** | `In Progress`, `Peer Review`, `Testing/QA` | Work in progress |
+| **Integrated** | `Completed`, `Closed` | Done / Closed |
+
+**Priority:** The sync checks labels in order: `integrated` → `in_progress` → `todo`. The first match wins. If an issue is **closed** (GitLab state), it is always treated as `integrated` regardless of labels.
+
+**Overall status calculation:**
+- All tasks `integrated` → `Status::Integrated`
+- Any task `in_progress` OR mix of `integrated` + `todo` → `Status::In Progress`
+- All tasks `todo` → `Status::To Do`
+
+You can customize these labels per-project in the dashboard. Use comma-separated values.
+
+### Sync Logs Table
+
+| Column | Description |
+|--------|-------------|
+| `project_id` | Reference to project |
+| `event_type` | GitLab event type |
+| `master_iid` | Master ticket IID |
+| `status` | `success`, `error`, or `skipped` |
+| `message` | Log message |
+
+---
+
+## Docker
+
+```bash
+# Pull and run
+docker run -d -p 3000:3000 \
+  -v $(pwd)/data:/app/data \
+  sophoun/gitlab_webhook_to_telegram_bot_proxy:latest
 ```
+
+The SQLite database is stored in `/app/data/app.db`. Mount a volume to persist it.
+
+---
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DB_PATH` | `./data/app.db` | SQLite database file path |
+
+---
+
+## Security
+
+- **Secrets are NOT in URLs**: All tokens and PATs are stored in the SQLite database, never exposed in webhook URLs
+- **Webhook secret validation**: Every project gets an auto-generated secret; all webhook requests must include the correct `X-Gitlab-Token` header
+- **No auth on dashboard**: The web UI has no authentication. Run behind a reverse proxy or VPN if exposing to the internet.
+
+---
+
+## API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/projects` | List all projects |
+| POST | `/api/projects` | Create project |
+| GET | `/api/projects/:id` | Get project |
+| PUT | `/api/projects/:id` | Update project |
+| DELETE | `/api/projects/:id` | Delete project |
+| GET | `/api/webhook-urls?projectId=1` | Get webhook URLs for a project |
+| GET | `/api/sync-logs?limit=50` | List recent sync logs |
+| POST | `/api/v1/webhook_to_telegram_bot/:projectId` | GitLab webhook → Telegram |
+| POST | `/api/v1/gitlab_sync_tasks/:projectId` | GitLab webhook → Master ticket sync |
+
+---
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Run dev server
+npm run dev
+
+# Run tests
+npm run test:run
+
+# Build for production
+npm run build
+```
+
+---
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT

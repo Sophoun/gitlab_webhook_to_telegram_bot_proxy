@@ -1,70 +1,47 @@
 /* eslint-disable prefer-const */
-
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from "next/server";
-import z from "zod";
+import { getDb } from "@/lib/db";
+import { projects } from "@/db/schema";
+import { eq } from "drizzle-orm";
+import { calculateOverallStatus } from "@/lib/sync-status";
 
-/**
- * Generic GitLab Sync Task Configuration
- */
-const SyncTaskConfig = z.object({
-  apiBase: z.string().url().default("https://gitlab.com/api/v4"),
-  pat: z.string().describe("GitLab Personal Access Token"),
-  mgmtId: z.string().describe("Management project ID"),
-  namespace: z.string().describe("Default GitLab namespace for sub-projects"),
-  secret: z
-    .string()
-    .optional()
-    .describe("Webhook secret token for x-gitlab-token validation"),
-});
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ projectId: string }> }
+) {
+  const { projectId } = await params;
 
-type Config = z.infer<typeof SyncTaskConfig>;
+  // Lookup project config from database
+  const db = getDb();
+  const project = db.select().from(projects).where(eq(projects.id, Number(projectId))).get();
 
-/**
- * Extracts configuration from request URL search parameters.
- */
-function extractConfig(searchParams: URLSearchParams): Partial<Config> {
-  return {
-    apiBase: searchParams.get("apiBase") || undefined,
-    pat: searchParams.get("pat") || undefined,
-    mgmtId: searchParams.get("mgmtId") || undefined,
-    namespace: searchParams.get("namespace") || undefined,
-    secret: searchParams.get("secret") || undefined,
-  };
-}
-
-/**
- * GitLab manual sync sub task to parent issue board via Webhook
- * @description Automatically sync status when a sub-project issue is updated. This endpoint supports auto-discovery of the master ticket via native links, mentions, or regex.
- * @queryParams SyncTaskConfig
- * @response 200
- * @openapi
- */
-export async function POST(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const rawConfig = extractConfig(searchParams);
-
-  const configParse = SyncTaskConfig.safeParse(rawConfig);
-  if (!configParse.success) {
+  if (!project) {
     return NextResponse.json(
-      {
-        error: "Missing or invalid configuration parameters",
-        details: configParse.error.format(),
-      },
-      { status: 400 },
+      { error: "Project not found" },
+      { status: 404 }
     );
   }
-  const config = configParse.data;
+
+  const config = {
+    apiBase: project.gitlabApiBase || "https://gitlab.com/api/v4",
+    pat: project.gitlabPat,
+    mgmtId: project.mgmtId,
+    namespace: project.namespace,
+    labelConfig: {
+      todo: (project.labelsTodo || "").split(",").map((s) => s.trim()).filter(Boolean),
+      inProgress: (project.labelsInProgress || "").split(",").map((s) => s.trim()).filter(Boolean),
+      integrated: (project.labelsIntegrated || "").split(",").map((s) => s.trim()).filter(Boolean),
+    },
+  };
 
   // Webhook Secret Validation
-  if (config.secret) {
-    const auth = req.headers.get("x-gitlab-token");
-    if (auth !== config.secret) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  const auth = req.headers.get("x-gitlab-token");
+  if (auth !== project.webhookSecret) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let masterIid = searchParams.get("masterIid");
+  let masterIid = project.masterIid;
   let body: any = {};
 
   try {
@@ -104,10 +81,9 @@ export async function POST(req: NextRequest) {
         });
       }
     }
-  } catch (_err) {
-    // Body is optional if masterIid is provided in query params
+  } catch {
     console.log(
-      "No JSON body provided, proceeding with masterIid from query params if available.",
+      "No JSON body provided, proceeding with masterIid from DB if available.",
     );
   }
 
@@ -126,12 +102,9 @@ export async function POST(req: NextRequest) {
   // 2. Try Auto-Discovery from native links/mentions
   if (!masterIid && body) {
     const subProjectId = body.project?.id;
-    
-    // Note webhooks have note ID in object_attributes.iid, but issue ID is in body.issue.iid
-    // Issue webhooks have issue ID in object_attributes.iid
     const objectKind = body.object_kind;
     let subIssueIid: number | undefined;
-    
+
     if (objectKind === "note") {
       subIssueIid = body.issue?.iid || body.merge_request?.iid;
       if (!subIssueIid) {
@@ -154,7 +127,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         error:
-          "Could not identify Master Ticket IID. Please link the issue, add 'Master: #123' to description, or provide masterIid in query params.",
+          "Could not identify Master Ticket IID. Please link the issue, add 'Master: #123' to description, or set master_iid in project config.",
       },
       { status: 400 },
     );
@@ -173,13 +146,10 @@ export async function POST(req: NextRequest) {
   }
 }
 
-/**
- * Helper to discover Master Ticket IID from a sub-task.
- */
 async function discoverMasterIid(
   subProjectId: number,
   subIssueIid: number,
-  config: Config,
+  config: { apiBase: string; pat: string; mgmtId: string },
 ): Promise<string | null> {
   const { apiBase, pat, mgmtId } = config;
 
@@ -235,14 +205,25 @@ async function discoverMasterIid(
   return null;
 }
 
-async function syncStatusToMaster(masterIid: string, config: Config) {
-  const { apiBase, pat, mgmtId, namespace } = config;
+async function syncStatusToMaster(
+  masterIid: string,
+  config: {
+    apiBase: string;
+    pat: string;
+    mgmtId: string;
+    namespace: string;
+    labelConfig: {
+      todo: string[];
+      inProgress: string[];
+      integrated: string[];
+    };
+  }
+) {
+  const { apiBase, pat, mgmtId, namespace, labelConfig } = config;
   const encodedMgmtId = encodeURIComponent(mgmtId);
 
-  // 1. Fetch mentions AND links from the Master ticket to find all sub-tasks
   const uniqueRefs = new Set<string>();
 
-  // Helper to normalize reference (e.g. "path/to/project#123" or just "project#123")
   const normalizeRef = (ref: string) => {
     if (!ref.includes("#")) return ref;
     let [path, iid] = ref.split("#");
@@ -292,7 +273,6 @@ async function syncStatusToMaster(masterIid: string, config: Config) {
   for (const ref of Array.from(uniqueRefs)) {
     const [path, iid] = ref.split("#");
 
-    // Skip if it's the master ticket itself
     if (path.includes(mgmtId) && String(iid) === String(masterIid)) continue;
 
     const res = await fetch(
@@ -303,86 +283,72 @@ async function syncStatusToMaster(masterIid: string, config: Config) {
     if (res.ok) {
       const task = await res.json();
       const projectLabel = path.split("/").pop() || path;
-      const statusLabel =
-        task.labels.find((l: string) => l.startsWith("Status::")) ||
-        task.labels.join(", ") ||
-        "Unset";
 
-      subTaskStatuses.push(statusLabel);
+      // Map task labels to category using configured label mapping
+      let category: "todo" | "in_progress" | "integrated" | null = null;
+      let matchedLabel = "Unset";
 
-      // Determine Icon based on project name or status
+      // Check if issue is closed — treat as integrated regardless of labels
+      if (task.state === "closed") {
+        category = "integrated";
+        matchedLabel = "Closed";
+      } else {
+        for (const label of task.labels || []) {
+          const trimmed = label.trim();
+          if (labelConfig.integrated.includes(trimmed)) {
+            category = "integrated";
+            matchedLabel = trimmed;
+            break;
+          }
+          if (labelConfig.inProgress.includes(trimmed)) {
+            category = "in_progress";
+            matchedLabel = trimmed;
+            break;
+          }
+          if (labelConfig.todo.includes(trimmed)) {
+            category = "todo";
+            matchedLabel = trimmed;
+            break;
+          }
+        }
+      }
+
+      // Fallback: if no category matched, use first label or "Unset"
+      if (!category) {
+        matchedLabel = task.labels?.[0]?.trim() || "Unset";
+        category = "todo";
+      }
+
+      subTaskStatuses.push(category);
+
       let icon = "🚧";
       let statusIcon = "";
 
       const lowerProject = projectLabel.toLowerCase();
 
-      // Project Icons
       if (lowerProject.includes("android")) icon = "🤖";
       else if (lowerProject.includes("mobile")) icon = "📱";
       else if (lowerProject.includes("ios") || lowerProject.includes("apple"))
         icon = "🍎";
-      else if (
-        lowerProject.includes("web") ||
-        lowerProject.includes("frontend")
-      )
+      else if (lowerProject.includes("web") || lowerProject.includes("frontend"))
         icon = "🌐";
       else if (lowerProject.includes("backend") || lowerProject.includes("api"))
         icon = "⚙️";
-      else if (
-        lowerProject.includes("design") ||
-        lowerProject.includes("figma")
-      )
+      else if (lowerProject.includes("design") || lowerProject.includes("figma"))
         icon = "🎨";
 
-      // Status-based Fallback Icons
-      if (statusLabel.includes("To Do")) statusIcon = "🚧";
-      else if (
-        statusLabel.includes("Development") ||
-        statusLabel.includes("In Progress")
-      )
-        statusIcon = "🏗️";
-      else if (statusLabel.includes("Review") || statusLabel.includes("QA"))
-        statusIcon = "🧪";
-      else if (
-        statusLabel.includes("Integrated") ||
-        statusLabel.includes("Done")
-      )
-        statusIcon = "✅";
+      if (category === "todo") statusIcon = "🚧";
+      else if (category === "in_progress") statusIcon = "🏗️";
+      else if (category === "integrated") statusIcon = "✅";
 
-      tableRows += `| ${icon} \`${projectLabel}\` | ${task.title} | ${statusIcon} \`${statusLabel}\` | ${ref} |\n`;
+      tableRows += `| ${icon} \`${projectLabel}\` | ${task.title} | ${statusIcon} \`${matchedLabel}\` | ${ref} |\n`;
     } else {
       console.error(`❌ Failed to fetch sub-task ${ref}: ${res.status} ${res.statusText}`);
     }
   }
 
   // 3. Calculate Overall Status for the Master Task
-  let overallStatus = "Status::To Do";
-  if (subTaskStatuses.length > 0) {
-    const isAllDone = subTaskStatuses.every(
-      (s) => s.includes("Integrated") || s.includes("Done"),
-    );
-    const isAnyInProgress = subTaskStatuses.some(
-      (s) =>
-        s.includes("Development") ||
-        s.includes("In Progress") ||
-        s.includes("Review") ||
-        s.includes("QA"),
-    );
-    const isAnyDone = subTaskStatuses.some(
-      (s) => s.includes("Integrated") || s.includes("Done"),
-    );
-    const isAnyTodo = subTaskStatuses.some(
-      (s) => s.includes("To Do") || s === "Unset" || s === "",
-    );
-
-    if (isAllDone) {
-      overallStatus = "Status::Integrated";
-    } else if (isAnyInProgress || (isAnyDone && isAnyTodo)) {
-      overallStatus = "Status::In Progress";
-    } else {
-      overallStatus = "Status::To Do";
-    }
-  }
+  const overallStatus = calculateOverallStatus(subTaskStatuses);
 
   // 4. Construct the FULL Markdown Table
   const tableHeader =
@@ -404,24 +370,19 @@ async function syncStatusToMaster(masterIid: string, config: Config) {
 
   const master = await masterRes.json();
 
-  // Check if update is actually needed
   const currentStatusLabel = (master.labels || []).find((l: string) =>
     l.startsWith("Status::"),
   );
   const isStatusChanged = currentStatusLabel !== overallStatus;
-  
-  // Normalize old table for comparison (remove timestamp line if exists)
+
   const hasOldTable = master.description.includes("## 📊 Development Status");
   const isTableChanged = !master.description.includes(tableRows.trim());
 
   if (!isStatusChanged && !isTableChanged && hasOldTable) {
-    console.log(
-      `✅ No changes detected for Master Task #${masterIid}. Skipping update.`,
-    );
+    console.log(`✅ No changes detected for Master Task #${masterIid}. Skipping update.`);
     return "No changes detected. Sync skipped.";
   }
 
-  // Clean up description (remove old status blocks)
   const baseDesc = master.description
     .split("## 📊 Development Status")[0]
     .split("## 📊 Squad Development Status")[0]
@@ -429,7 +390,6 @@ async function syncStatusToMaster(masterIid: string, config: Config) {
 
   const finalDesc = `${baseDesc}\n\n${fullTableBlock}\n\n_🕒 Last Sync: ${new Date().toLocaleString("en-KH")}_\n<!-- gitlab_sync_task_update -->`;
 
-  // Update labels: remove existing Status:: labels and add the new calculated status
   const otherLabels = (master.labels || []).filter(
     (l: string) => !l.startsWith("Status::"),
   );
