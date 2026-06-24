@@ -13,6 +13,7 @@ A lightweight proxy service that connects GitLab webhooks to Telegram notificati
 > Each `:projectId` config stores your management project ID (`mgmt_id`) internally. Multiple GitLab projects can share the same `:projectId` if they belong to the same logical group.
 
 **Example:**
+
 ```
 You create "Mobile App" config in UI → gets DB ID: 1
 
@@ -100,7 +101,7 @@ Open `http://<your-host>/` to access the dashboard.
    - **Telegram Chat ID**: Group/channel ID (e.g., `-1001234567890`)
    - **Ignore Users**: Comma-separated list of usernames to flag as robot updates
    - **Webhook Secret**: Auto-generated secret for validating `X-Gitlab-Token` header
-  3. Save
+3. Save
 4. Click **URLs** on your project to get the webhook URLs
 
 ### Via API
@@ -184,6 +185,7 @@ The sync task reads labels from child issues and maps them to one of three categ
 **Priority:** The sync checks labels in order: `integrated` → `in_progress` → `todo`. The first match wins. If an issue is **closed** (GitLab state), it is always treated as `integrated` regardless of labels.
 
 **Overall status calculation:**
+
 - All tasks `integrated` → `Status::Integrated`
 - Any task `in_progress` OR mix of `integrated` + `todo` → `Status::In Progress`
 - All tasks `todo` → `Status::To Do`

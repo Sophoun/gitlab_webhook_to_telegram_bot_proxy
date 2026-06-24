@@ -44,8 +44,19 @@ export async function POST(
   let masterIid = project.masterIid;
   let body: any = {};
 
+  // Parse JSON body with defensive error handling
   try {
-    body = await req.json();
+    const rawBody = await req.text();
+    body = JSON.parse(rawBody);
+  } catch (parseError) {
+    console.error("❌ Failed to parse sync webhook body:", parseError);
+    return NextResponse.json(
+      { error: "Invalid JSON body" },
+      { status: 400 }
+    );
+  }
+
+  try {
     const eventType = req.headers.get("x-gitlab-event") || "unknown";
     const objectKind = body.object_kind || "unknown";
     const subProjectId = body.project?.id || "unknown";
@@ -81,10 +92,8 @@ export async function POST(
         });
       }
     }
-  } catch {
-    console.log(
-      "No JSON body provided, proceeding with masterIid from DB if available.",
-    );
+  } catch (err) {
+    console.log("Error processing webhook body:", err);
   }
 
   // 1. Try extraction from body text (Master: #123)

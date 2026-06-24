@@ -49,8 +49,20 @@ export async function POST(
   const botToken = project.telegramBotToken;
   const chatId = project.telegramChatId;
 
-  // Extract Gitlab issue body
-  const body = await req.json();
+  // Extract Gitlab issue body with defensive parsing
+  let body: any = {};
+  try {
+    const rawBody = await req.text();
+    body = JSON.parse(rawBody);
+  } catch (parseError) {
+    console.error("❌ Failed to parse webhook body:", parseError);
+    return NextResponse.json(
+      GitLabWebhookToTelegramResponse.parse({
+        status: { success: false, code: "GL-005", msg: "Invalid JSON body" },
+      }),
+      { status: 400 }
+    );
+  }
 
   // Extract common attributes safely
   const projectName =
