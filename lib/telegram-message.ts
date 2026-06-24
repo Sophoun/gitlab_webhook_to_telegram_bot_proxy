@@ -7,7 +7,10 @@ export interface MessageResult {
 }
 
 export function escapeMarkdown(text: string): string {
-  return text.replace(/([_*[\]()~`>#+=|{}.!-])/g, "\\$1");
+  // Only escape characters that break inline formatting (* _ `)
+  // [ ] ( ) are only special in link syntax [text](url) — too rare to warrant visual noise
+  // - | # etc. are only special at line start or in tables
+  return text.replace(/([*_`])/g, "\\$1");
 }
 
 export function buildIssueMessage(body: any, isIgnoredUser: boolean): MessageResult {

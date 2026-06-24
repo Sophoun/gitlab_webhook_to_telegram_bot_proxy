@@ -10,9 +10,9 @@ import {
 } from "./telegram-message";
 
 describe("escapeMarkdown", () => {
-  it("escapes all markdown special characters", () => {
-    const input = "*_[]()~`>#+=|{}.!-";
-    const expected = "\\*\\_\\[\\]\\(\\)\\~\\`\\>\\#\\+\\=\\|\\{\\}\\.\\!\\-";
+  it("escapes inline formatting chars (* _ `)", () => {
+    const input = "*_`";
+    const expected = "\\*\\_\\`";
     expect(escapeMarkdown(input)).toBe(expected);
   });
 
@@ -24,8 +24,8 @@ describe("escapeMarkdown", () => {
     expect(escapeMarkdown("Fix *critical* bug")).toBe("Fix \\*critical\\* bug");
   });
 
-  it("escapes brackets and parentheses in URLs", () => {
-    expect(escapeMarkdown("Link [here] (now)")).toBe("Link \\[here\\] \\(now\\)");
+  it("leaves brackets and parentheses untouched", () => {
+    expect(escapeMarkdown("Link [here] (now)")).toBe("Link [here] (now)");
   });
 
   it("handles empty string", () => {
@@ -34,6 +34,10 @@ describe("escapeMarkdown", () => {
 
   it("handles string with only special chars", () => {
     expect(escapeMarkdown("***")).toBe("\\*\\*\\*");
+  });
+
+  it("leaves hyphens and pipes untouched", () => {
+    expect(escapeMarkdown("Some - text | with (special) chars")).toBe("Some - text | with (special) chars");
   });
 });
 
@@ -103,8 +107,8 @@ describe("buildIssueMessage", () => {
     };
     const result = buildIssueMessage(body, false);
     expect(result.text).toContain("🎯 Milestone:");
-    expect(result.text).toContain("v1\\.0");
-    expect(result.text).toContain("v2\\.0");
+    expect(result.text).toContain("v1.0");
+    expect(result.text).toContain("v2.0");
   });
 
   it("shows status change on close", () => {
@@ -167,7 +171,7 @@ describe("buildIssueMessage", () => {
       },
     };
     const result = buildIssueMessage(body, false);
-    expect(result.text).toContain("Fix \\*critical\\* \\[bug\\] \\(urgent\\)");
+    expect(result.text).toContain("Fix \\*critical\\* [bug] (urgent)");
   });
 
   it("creates keyboard with View Issue and View Project buttons", () => {
@@ -249,7 +253,7 @@ describe("buildMergeRequestMessage", () => {
       },
     };
     const result = buildMergeRequestMessage(body, false);
-    expect(result.text).toContain("feature/\\[test\\]");
+    expect(result.text).toContain("feature/[test]");
     expect(result.text).toContain("main\\*");
   });
 });
@@ -330,7 +334,7 @@ describe("buildPushMessage", () => {
   it("escapes markdown in branch name", () => {
     const body = { ...baseBody, ref: "refs/heads/feature/[test]" };
     const result = buildPushMessage(body, false);
-    expect(result.text).toContain("feature/\\[test\\]");
+    expect(result.text).toContain("feature/[test]");
   });
 });
 
@@ -489,7 +493,7 @@ describe("buildMessage", () => {
 
   it("escapes markdown in project name", () => {
     const result = buildMessage("Issue Hook", baseBody, "Project [V2]", "User", false);
-    expect(result.text).toContain("Project \\[V2\\]");
+    expect(result.text).toContain("Project [V2]");
   });
 
   it("handles all event types", () => {
