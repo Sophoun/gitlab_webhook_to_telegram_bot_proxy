@@ -1,6 +1,10 @@
 # Stage 1: Install dependencies
 FROM node:20-alpine AS deps
 WORKDIR /app
+
+# Install build tools for native modules (better-sqlite3)
+RUN apk add --no-cache python3 build-base
+
 COPY package.json package-lock.json ./
 RUN npm ci
 
