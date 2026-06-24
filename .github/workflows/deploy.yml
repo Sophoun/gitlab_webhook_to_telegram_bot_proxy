@@ -23,6 +23,10 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      - name: Set short SHA
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
       - name: Build and Push
         uses: docker/build-push-action@v5
         with:
@@ -30,6 +34,6 @@ jobs:
           push: true
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/gitlab_webhook_to_telegram_bot_proxy:latest
-            ${{ secrets.DOCKER_USERNAME }}/gitlab_webhook_to_telegram_bot_proxy:${{ github.sha }}
+            ${{ secrets.DOCKER_USERNAME }}/gitlab_webhook_to_telegram_bot_proxy:${{ steps.vars.outputs.sha_short }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
