@@ -25,11 +25,11 @@ function getInitialForm(project: Project | null): ProjectFormData {
     return {
       name: project.name,
       gitlab_api_base: project.gitlab_api_base || "https://gitlab.com/api/v4",
-      gitlab_pat: "",
+      gitlab_pat: project.gitlab_pat || "",
       mgmt_id: project.mgmt_id,
       namespace: project.namespace,
       master_iid: project.master_iid || "",
-      telegram_bot_token: "",
+      telegram_bot_token: project.telegram_bot_token || "",
       telegram_chat_id: project.telegram_chat_id,
       ignore_users: project.ignore_users || "",
       webhook_secret: project.webhook_secret,
@@ -106,14 +106,14 @@ export function ProjectFormDialog({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="gitlab_pat">GitLab PAT {project ? "" : "*"}</Label>
+                <Label htmlFor="gitlab_pat">GitLab PAT *</Label>
                 <Input
                   id="gitlab_pat"
                   type="password"
                   value={form.gitlab_pat}
                   onChange={(e) => setForm({ ...form, gitlab_pat: e.target.value })}
-                  placeholder={project ? "Leave empty to keep existing" : "glpat-xxx"}
-                  required={!project}
+                  placeholder="glpat-xxx"
+                  required
                 />
               </div>
             </div>
@@ -212,7 +212,7 @@ export function ProjectFormDialog({
             </h3>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="telegram_bot_token">Bot Token {project ? "" : "*"}</Label>
+                <Label htmlFor="telegram_bot_token">Bot Token *</Label>
                 <Input
                   id="telegram_bot_token"
                   type="password"
@@ -220,8 +220,8 @@ export function ProjectFormDialog({
                   onChange={(e) =>
                     setForm({ ...form, telegram_bot_token: e.target.value })
                   }
-                  placeholder={project ? "Leave empty to keep existing" : "123456:ABC-DEF..."}
-                  required={!project}
+                  placeholder="123456:ABC-DEF..."
+                  required
                 />
               </div>
               <div className="space-y-2">

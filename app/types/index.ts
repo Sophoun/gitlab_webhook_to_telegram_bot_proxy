@@ -2,9 +2,11 @@ export interface Project {
   id: number;
   name: string;
   gitlab_api_base: string;
+  gitlab_pat: string;
   mgmt_id: string;
   namespace: string;
   master_iid: string | null;
+  telegram_bot_token: string;
   telegram_chat_id: string;
   ignore_users: string;
   webhook_secret: string;
