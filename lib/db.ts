@@ -24,6 +24,8 @@ function initSchema(db: Database.Database) {
       labels_todo TEXT DEFAULT 'Backlog, Refinement, Ready for Dev',
       labels_in_progress TEXT DEFAULT 'In Progress, Peer Review, Testing/QA',
       labels_integrated TEXT DEFAULT 'Completed, Closed',
+      skip_ignored_users INTEGER DEFAULT 0,
+      skip_description_only_updates INTEGER DEFAULT 0,
       created_at INTEGER DEFAULT (unixepoch()),
       updated_at INTEGER DEFAULT (unixepoch())
     );

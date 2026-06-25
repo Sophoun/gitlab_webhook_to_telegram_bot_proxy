@@ -6,6 +6,7 @@ import { getDb } from "@/lib/db";
 import { projects } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { buildMessage } from "@/lib/telegram-message";
+import { getIgnoredUsers, isUserInIgnoreList, shouldSkipDescriptionOnlyUpdate } from "@/lib/webhook-filters";
 
 const GitLabWebhookToTelegramResponse = z.object({
   status: z.object({
@@ -71,10 +72,17 @@ export async function POST(
   const userUsername = body.user?.username || "";
 
   // 1. Check if user is in ignore list (bot accounts)
-  const ignoreUsers = project.ignoreUsers?.split(",").map((u) => u.trim()) || [];
-  const isIgnoredUser =
-    ignoreUsers.includes(userName) ||
-    (userUsername && ignoreUsers.includes(userUsername));
+  const ignoreUsers = getIgnoredUsers(project.ignoreUsers);
+  const isIgnoredUser = isUserInIgnoreList(ignoreUsers, userName, userUsername);
+
+  if (isIgnoredUser && project.skipIgnoredUsers) {
+    console.log(`🤖 Skipping ignored user: ${userName} (skip_ignored_users enabled)`);
+    return NextResponse.json(
+      GitLabWebhookToTelegramResponse.parse({
+        status: { success: true },
+      }),
+    );
+  }
 
   if (isIgnoredUser) {
     console.log(`🤖 Ignored user detected: ${userName} — sending as robot update`);
@@ -100,6 +108,16 @@ export async function POST(
         }),
       );
     }
+  }
+
+  // 3. Skip issue updates when only description changed (if configured)
+  if (shouldSkipDescriptionOnlyUpdate(eventType, project.skipDescriptionOnlyUpdates, body)) {
+    console.log(`⏭️ Skipping notification: only description changed.`);
+    return NextResponse.json(
+      GitLabWebhookToTelegramResponse.parse({
+        status: { success: true },
+      }),
+    );
   }
 
   // Build message and keyboard

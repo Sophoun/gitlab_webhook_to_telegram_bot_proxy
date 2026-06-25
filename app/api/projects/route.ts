@@ -40,6 +40,8 @@ export async function POST(req: NextRequest) {
       labelsTodo: body.labels_todo || "Backlog, Refinement, Ready for Dev",
       labelsInProgress: body.labels_in_progress || "In Progress, Peer Review, Testing/QA",
       labelsIntegrated: body.labels_integrated || "Completed, Closed",
+      skipIgnoredUsers: body.skip_ignored_users === true ? true : false,
+      skipDescriptionOnlyUpdates: body.skip_description_only_updates === true ? true : false,
     }).returning({ id: projects.id }).get();
 
     return NextResponse.json({ id: result.id }, { status: 201 });

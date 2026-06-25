@@ -17,6 +17,8 @@ export const projects = sqliteTable("projects", {
   labelsTodo: text("labels_todo").default("Backlog, Refinement, Ready for Dev"),
   labelsInProgress: text("labels_in_progress").default("In Progress, Peer Review, Testing/QA"),
   labelsIntegrated: text("labels_integrated").default("Completed, Closed"),
+  skipIgnoredUsers: integer("skip_ignored_users", { mode: "boolean" }).default(false),
+  skipDescriptionOnlyUpdates: integer("skip_description_only_updates", { mode: "boolean" }).default(false),
   createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
   updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });

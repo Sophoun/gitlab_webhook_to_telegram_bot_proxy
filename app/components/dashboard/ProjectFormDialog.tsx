@@ -36,6 +36,8 @@ function getInitialForm(project: Project | null): ProjectFormData {
       labels_todo: project.labels_todo,
       labels_in_progress: project.labels_in_progress,
       labels_integrated: project.labels_integrated,
+      skip_ignored_users: project.skip_ignored_users ?? false,
+      skip_description_only_updates: project.skip_description_only_updates ?? false,
     };
   }
   return {
@@ -285,6 +287,43 @@ export function ProjectFormDialog({
                   Auto-generated. Copy into your GitLab webhook Secret Token field.
                 </p>
               </div>
+            </div>
+
+            <div className="space-y-3 pt-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="skip_ignored_users"
+                  checked={form.skip_ignored_users}
+                  onChange={(e) =>
+                    setForm({ ...form, skip_ignored_users: e.target.checked })
+                  }
+                  className="h-4 w-4"
+                />
+                <Label htmlFor="skip_ignored_users" className="cursor-pointer text-sm">
+                  Skip ignored users entirely
+                </Label>
+              </div>
+              <p className="text-xs text-muted-foreground ml-6">
+                When enabled, events from users listed in &quot;Ignore Users&quot; will not send any Telegram notification. When disabled, they will still be sent with a robot marker.
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="skip_description_only_updates"
+                  checked={form.skip_description_only_updates}
+                  onChange={(e) =>
+                    setForm({ ...form, skip_description_only_updates: e.target.checked })
+                  }
+                  className="h-4 w-4"
+                />
+                <Label htmlFor="skip_description_only_updates" className="cursor-pointer text-sm">
+                  Skip description-only issue updates
+                </Label>
+              </div>
+              <p className="text-xs text-muted-foreground ml-6">
+                When enabled, issue update notifications will be skipped if the only change is to the description field.
+              </p>
             </div>
           </div>
 

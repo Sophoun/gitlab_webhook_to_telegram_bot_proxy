@@ -49,6 +49,8 @@ export async function PUT(
     if (body.labels_todo !== undefined) updateData.labelsTodo = body.labels_todo;
     if (body.labels_in_progress !== undefined) updateData.labelsInProgress = body.labels_in_progress;
     if (body.labels_integrated !== undefined) updateData.labelsIntegrated = body.labels_integrated;
+    if (body.skip_ignored_users !== undefined) updateData.skipIgnoredUsers = body.skip_ignored_users;
+    if (body.skip_description_only_updates !== undefined) updateData.skipDescriptionOnlyUpdates = body.skip_description_only_updates;
 
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json({ error: "No fields to update" }, { status: 400 });

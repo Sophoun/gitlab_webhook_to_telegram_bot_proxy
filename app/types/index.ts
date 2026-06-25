@@ -11,6 +11,8 @@ export interface Project {
   labels_todo: string;
   labels_in_progress: string;
   labels_integrated: string;
+  skip_ignored_users: boolean;
+  skip_description_only_updates: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -39,6 +41,8 @@ export interface ProjectFormData {
   labels_todo: string;
   labels_in_progress: string;
   labels_integrated: string;
+  skip_ignored_users: boolean;
+  skip_description_only_updates: boolean;
 }
 
 export const defaultFormData: ProjectFormData = {
@@ -55,4 +59,6 @@ export const defaultFormData: ProjectFormData = {
   labels_todo: "Backlog, Refinement, Ready for Dev",
   labels_in_progress: "In Progress, Peer Review, Testing/QA",
   labels_integrated: "Completed, Closed",
+  skip_ignored_users: false,
+  skip_description_only_updates: false,
 };
