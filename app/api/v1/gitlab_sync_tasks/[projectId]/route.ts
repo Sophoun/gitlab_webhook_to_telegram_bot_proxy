@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { projects } from "@/db/schema";
+import { projects, syncLogs } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { calculateOverallStatus } from "@/lib/sync-status";
 
@@ -71,6 +71,13 @@ export async function POST(
 
       if (!hasStatusChange) {
         console.log(`⏭️ Skipping: No status-related change detected. Changed fields: ${changedKeys.join(", ")}`);
+        db.insert(syncLogs).values({
+          projectId: Number(projectId),
+          eventType: eventType,
+          masterIid: masterIid || null,
+          status: "skipped",
+          message: `No status-related change. Changed: ${changedKeys.join(", ")}`,
+        }).run();
         return NextResponse.json({
           skipped: true,
           reason: "No status-related change",
@@ -86,6 +93,13 @@ export async function POST(
 
       if (!mentionsMaster) {
         console.log(`⏭️ Skipping ${objectKind} webhook: No Master ticket mention found.`);
+        db.insert(syncLogs).values({
+          projectId: Number(projectId),
+          eventType: eventType,
+          masterIid: masterIid || null,
+          status: "skipped",
+          message: `No Master ticket mention in ${objectKind}`,
+        }).run();
         return NextResponse.json({
           skipped: true,
           reason: `No Master ticket mention in ${objectKind}`,
@@ -133,6 +147,13 @@ export async function POST(
 
   if (!masterIid) {
     console.log(`❌ No master ticket found. Returning 400.`);
+    db.insert(syncLogs).values({
+      projectId: Number(projectId),
+      eventType: req.headers.get("x-gitlab-event") || "unknown",
+      masterIid: null,
+      status: "error",
+      message: "Could not identify Master Ticket IID",
+    }).run();
     return NextResponse.json(
       {
         error:
@@ -144,6 +165,13 @@ export async function POST(
 
   try {
     const report = await syncStatusToMaster(masterIid, config);
+    db.insert(syncLogs).values({
+      projectId: Number(projectId),
+      eventType: req.headers.get("x-gitlab-event") || "unknown",
+      masterIid,
+      status: "success",
+      message: typeof report === "string" ? report : null,
+    }).run();
     return NextResponse.json({
       success: true,
       masterIid,
@@ -151,6 +179,13 @@ export async function POST(
     });
   } catch (err: any) {
     console.error("Sync failed:", err);
+    db.insert(syncLogs).values({
+      projectId: Number(projectId),
+      eventType: req.headers.get("x-gitlab-event") || "unknown",
+      masterIid,
+      status: "error",
+      message: err.message || "Unknown sync error",
+    }).run();
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
