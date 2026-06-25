@@ -57,16 +57,16 @@ export function ProjectsTable({
               <TableCell className="font-medium">{project.name}</TableCell>
               <TableCell>{project.namespace}</TableCell>
               <TableCell>
-                {project.master_iid || (
+                {project.masterIid || (
                   <Badge variant="secondary">Auto-discover</Badge>
                 )}
               </TableCell>
               <TableCell className="font-mono text-sm">
-                {project.telegram_chat_id}
+                {project.telegramChatId}
               </TableCell>
               <TableCell>
-                {project.ignore_users ? (
-                  <Badge variant="outline">{project.ignore_users}</Badge>
+                {project.ignoreUsers ? (
+                  <Badge variant="outline">{project.ignoreUsers}</Badge>
                 ) : (
                   <span className="text-muted-foreground">-</span>
                 )}

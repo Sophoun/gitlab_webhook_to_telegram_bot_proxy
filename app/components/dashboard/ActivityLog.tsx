@@ -32,11 +32,11 @@ export function ActivityLog({ logs }: ActivityLogProps) {
           {logs.map((log) => (
             <TableRow key={log.id}>
               <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
-                {new Date(log.created_at).toLocaleString()}
+                {new Date(log.createdAt).toLocaleString()}
               </TableCell>
-              <TableCell className="text-sm">{log.event_type || "-"}</TableCell>
+              <TableCell className="text-sm">{log.eventType || "-"}</TableCell>
               <TableCell className="text-sm font-mono">
-                {log.master_iid || "-"}
+                {log.masterIid || "-"}
               </TableCell>
               <TableCell>
                 <Badge

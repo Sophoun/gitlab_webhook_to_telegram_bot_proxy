@@ -24,20 +24,20 @@ function getInitialForm(project: Project | null): ProjectFormData {
   if (project) {
     return {
       name: project.name,
-      gitlab_api_base: project.gitlab_api_base || "https://gitlab.com/api/v4",
-      gitlab_pat: project.gitlab_pat || "",
-      mgmt_id: project.mgmt_id,
+      gitlab_api_base: project.gitlabApiBase || "https://gitlab.com/api/v4",
+      gitlab_pat: project.gitlabPat || "",
+      mgmt_id: project.mgmtId,
       namespace: project.namespace,
-      master_iid: project.master_iid || "",
-      telegram_bot_token: project.telegram_bot_token || "",
-      telegram_chat_id: project.telegram_chat_id,
-      ignore_users: project.ignore_users || "",
-      webhook_secret: project.webhook_secret,
-      labels_todo: project.labels_todo,
-      labels_in_progress: project.labels_in_progress,
-      labels_integrated: project.labels_integrated,
-      skip_ignored_users: project.skip_ignored_users ?? false,
-      skip_description_only_updates: project.skip_description_only_updates ?? false,
+      master_iid: project.masterIid || "",
+      telegram_bot_token: project.telegramBotToken || "",
+      telegram_chat_id: project.telegramChatId,
+      ignore_users: project.ignoreUsers || "",
+      webhook_secret: project.webhookSecret,
+      labels_todo: project.labelsTodo,
+      labels_in_progress: project.labelsInProgress,
+      labels_integrated: project.labelsIntegrated,
+      skip_ignored_users: project.skipIgnoredUsers ?? false,
+      skip_description_only_updates: project.skipDescriptionOnlyUpdates ?? false,
     };
   }
   return {

@@ -1,32 +1,32 @@
 export interface Project {
   id: number;
   name: string;
-  gitlab_api_base: string;
-  gitlab_pat: string;
-  mgmt_id: string;
+  gitlabApiBase: string;
+  gitlabPat: string;
+  mgmtId: string;
   namespace: string;
-  master_iid: string | null;
-  telegram_bot_token: string;
-  telegram_chat_id: string;
-  ignore_users: string;
-  webhook_secret: string;
-  labels_todo: string;
-  labels_in_progress: string;
-  labels_integrated: string;
-  skip_ignored_users: boolean;
-  skip_description_only_updates: boolean;
-  created_at: string;
-  updated_at: string;
+  masterIid: string | null;
+  telegramBotToken: string;
+  telegramChatId: string;
+  ignoreUsers: string;
+  webhookSecret: string;
+  labelsTodo: string;
+  labelsInProgress: string;
+  labelsIntegrated: string;
+  skipIgnoredUsers: boolean;
+  skipDescriptionOnlyUpdates: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface SyncLog {
   id: number;
-  project_id: number | null;
-  event_type: string | null;
-  master_iid: string | null;
+  projectId: number | null;
+  eventType: string | null;
+  masterIid: string | null;
   status: string;
   message: string | null;
-  created_at: string;
+  createdAt: string;
 }
 
 export interface ProjectFormData {
