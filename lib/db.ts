@@ -50,6 +50,17 @@ function initSchema(db: Database.Database) {
     SET webhook_secret = lower(hex(randomblob(16)))
     WHERE webhook_secret IS NULL OR webhook_secret = ''
   `);
+
+  // Migration: add new columns to existing tables (CREATE TABLE IF NOT EXISTS only works for new DBs)
+  const cols = db.pragma("table_info(projects)") as Array<{ name: string }>;
+  const existing = new Set(cols.map((c) => c.name));
+
+  if (!existing.has("skip_ignored_users")) {
+    db.exec("ALTER TABLE projects ADD COLUMN skip_ignored_users INTEGER DEFAULT 0");
+  }
+  if (!existing.has("skip_description_only_updates")) {
+    db.exec("ALTER TABLE projects ADD COLUMN skip_description_only_updates INTEGER DEFAULT 0");
+  }
 }
 
 export function getDb() {
