@@ -48,16 +48,22 @@ export async function GET(request: NextRequest) {
 
     const db = getDb();
 
-    // Scope to MAIN projects only (each config's mgmt_id) — never sum
-    // activity across child GitLab repos.
+    // Scope to MAIN projects only by default (each config's mgmt_id) — never
+    // sum activity across child GitLab repos. `repo=<gitlab_project_id>`
+    // re-scopes to a single repo; childWork is then omitted since the whole
+    // report already IS that repo.
+    const repoParam = searchParams.get("repo");
+    const repoId = repoParam && !isNaN(parseInt(repoParam)) ? parseInt(repoParam) : null;
     const projectRows = await db.select({ mgmtId: projects.mgmtId }).from(projects);
     const mainProjectIds = projectRows
       .map((p) => parseInt(p.mgmtId))
       .filter((n) => !isNaN(n));
     const mainFilter =
-      mainProjectIds.length > 0
-        ? inArray(userActivity.gitlabProjectId, mainProjectIds)
-        : sql`0`;
+      repoId !== null
+        ? eq(userActivity.gitlabProjectId, repoId)
+        : mainProjectIds.length > 0
+          ? inArray(userActivity.gitlabProjectId, mainProjectIds)
+          : sql`0`;
 
     const rows: ActivityRow[] = await db
       .select({
@@ -157,7 +163,7 @@ export async function GET(request: NextRequest) {
       commitItems: [],
     };
 
-    if (mainProjectIds.length > 0) {
+    if (repoId === null && mainProjectIds.length > 0) {
       const childRows: ActivityRow[] = await db
         .select({
           activityType: userActivity.activityType,

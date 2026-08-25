@@ -6,6 +6,7 @@ import {
   projects,
   issueProgress,
   issueLinks,
+  gitlabRepos,
 } from "@/db/schema";
 import { and, eq, gte, desc, inArray, sql, type SQL } from "drizzle-orm";
 import {
@@ -60,13 +61,22 @@ export async function GET(request: NextRequest) {
         ? inArray(issueAnalytics.gitlabProjectId, mainProjectIds)
         : sql`0`; // no configured main projects -> no data
 
+    // ---- Repo scoping ----
+    // Default: main projects only. `repo=<gitlab_project_id>` re-scopes the
+    // whole review to a single repo (e.g. a child project with its own board).
+    const repoParam = searchParams.get("repo");
+    const scopeFilter: SQL =
+      repoParam && !isNaN(parseInt(repoParam))
+        ? eq(issueAnalytics.gitlabProjectId, parseInt(repoParam))
+        : mainProjectFilter;
+
     // ---- Build shared filters ----
     const cutoff =
       period !== "all" && !isNaN(parseInt(period))
         ? new Date(now - parseInt(period) * DAY_MS)
         : null;
 
-    const issueConditions: SQL[] = [mainProjectFilter];
+    const issueConditions: SQL[] = [scopeFilter];
     if (project && !isNaN(parseInt(project))) {
       issueConditions.push(eq(issueAnalytics.projectId, parseInt(project)));
     }
@@ -135,8 +145,13 @@ export async function GET(request: NextRequest) {
     for (const l of linkRows) {
       const key = `${l.gitlabProjectId}:${l.issueIid}`;
       const list = linksByMaster.get(key) ?? [];
-      const child = childAnalyticsByKey.get(`${l.linkedGitlabProjectId}:${l.linkedIssueIid}`);
-      const prog = progressByKey.get(`${l.linkedGitlabProjectId}:${l.linkedIssueIid}`);
+      // Same pair may arrive from two sources (formal link + subtask_ref)
+      const targetKey = `${l.linkedGitlabProjectId}:${l.linkedIssueIid}`;
+      if (list.some((x) => `${x.gitlabProjectId}:${x.issueIid}` === targetKey)) {
+        continue;
+      }
+      const child = childAnalyticsByKey.get(targetKey);
+      const prog = progressByKey.get(targetKey);
       list.push({
         gitlabProjectId: l.linkedGitlabProjectId,
         issueIid: l.linkedIssueIid,
@@ -379,13 +394,15 @@ export async function GET(request: NextRequest) {
       })
       .sort((a, b) => b.totalIssues - a.totalIssues);
 
-    // ---- Activity (same shared filters mapped to user_activity, main projects only) ----
-    const activityMainFilter: SQL =
-      mainProjectIds.length > 0
-        ? inArray(userActivity.gitlabProjectId, mainProjectIds)
-        : sql`0`;
+    // ---- Activity (same shared filters mapped to user_activity) ----
+    const activityScopeFilter: SQL =
+      repoParam && !isNaN(parseInt(repoParam))
+        ? eq(userActivity.gitlabProjectId, parseInt(repoParam))
+        : mainProjectIds.length > 0
+          ? inArray(userActivity.gitlabProjectId, mainProjectIds)
+          : sql`0`;
 
-    const activityConditions: SQL[] = [activityMainFilter];
+    const activityConditions: SQL[] = [activityScopeFilter];
     if (project && !isNaN(parseInt(project))) {
       activityConditions.push(eq(userActivity.projectId, parseInt(project)));
     }
@@ -417,19 +434,34 @@ export async function GET(request: NextRequest) {
       occurredAt: new Date(a.occurredAt).toISOString(),
     }));
 
-    // ---- Facets (main-project issues only, for dropdown options) ----
+    // ---- Facets (scoped to the selected repo, for dropdown options) ----
     const allAuthors = await db
       .select({
         username: issueAnalytics.authorUsername,
         name: issueAnalytics.authorName,
       })
       .from(issueAnalytics)
-      .where(mainProjectFilter)
+      .where(scopeFilter)
       .groupBy(issueAnalytics.authorUsername);
 
+    const repoRows = await db.select().from(gitlabRepos);
     const facets = {
       projects: projectRows,
       authors: allAuthors.sort((a, b) => a.name.localeCompare(b.name)),
+      repos: repoRows
+        .sort((a, b) =>
+          a.isMain === b.isMain
+            ? a.pathWithNamespace.localeCompare(b.pathWithNamespace)
+            : a.isMain
+              ? -1
+              : 1
+        )
+        .map((r) => ({
+          id: r.id,
+          name: r.name,
+          pathWithNamespace: r.pathWithNamespace,
+          isMain: r.isMain,
+        })),
     };
 
     return NextResponse.json({

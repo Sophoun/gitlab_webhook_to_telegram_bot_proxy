@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { userActivity, projects, issueProgressHistory } from "@/db/schema";
-import { and, gte, lte, inArray, sql } from "drizzle-orm";
+import { and, eq, gte, lte, inArray, sql } from "drizzle-orm";
 import { computeProgressDelivered } from "@/lib/progress-parser";
 
 export async function GET(request: NextRequest) {
@@ -35,10 +35,16 @@ export async function GET(request: NextRequest) {
     const mainProjectIds = projectRows
       .map((p) => parseInt(p.mgmtId))
       .filter((n) => !isNaN(n));
+    // Main projects only by default; `repo=<gitlab_project_id>` re-scopes to
+    // a single repo (e.g. a child project with its own team).
+    const repoParam = searchParams.get("repo");
+    const repoId = repoParam && !isNaN(parseInt(repoParam)) ? parseInt(repoParam) : null;
     const mainFilter =
-      mainProjectIds.length > 0
-        ? inArray(userActivity.gitlabProjectId, mainProjectIds)
-        : sql`0`;
+      repoId !== null
+        ? eq(userActivity.gitlabProjectId, repoId)
+        : mainProjectIds.length > 0
+          ? inArray(userActivity.gitlabProjectId, mainProjectIds)
+          : sql`0`;
 
     const rows = await db
       .select({
@@ -117,10 +123,13 @@ export async function GET(request: NextRequest) {
     // ---- Progress delivered per person ----
     // Full history is fetched so deltas are computed against prior values;
     // crediting is limited to the selected period (see computeProgressDelivered).
+    // Scoped to the same repo selection as the activity query.
     const historyFilter =
-      mainProjectIds.length > 0
-        ? inArray(issueProgressHistory.gitlabProjectId, mainProjectIds)
-        : sql`0`;
+      repoId !== null
+        ? eq(issueProgressHistory.gitlabProjectId, repoId)
+        : mainProjectIds.length > 0
+          ? inArray(issueProgressHistory.gitlabProjectId, mainProjectIds)
+          : sql`0`;
     const historyRows = await db
       .select({
         gitlabProjectId: issueProgressHistory.gitlabProjectId,

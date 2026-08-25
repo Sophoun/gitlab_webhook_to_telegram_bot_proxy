@@ -106,6 +106,18 @@ export const issueProgressHistory = sqliteTable("issue_progress_history", {
   occurredAt: integer("occurred_at", { mode: "timestamp" }).notNull(),
 });
 
+// Cache of every GitLab repo seen during sync, so the dashboard can offer
+// per-repo scoping (child repos have their own boards and teams).
+export const gitlabRepos = sqliteTable("gitlab_repos", {
+  id: integer("id", { mode: "number" }).primaryKey(), // GitLab project id
+  configProjectId: integer("config_project_id").notNull(),
+  name: text("name").notNull(),
+  pathWithNamespace: text("path_with_namespace").notNull(),
+  // 1 if this repo is a config's mgmt_id (main project)
+  isMain: integer("is_main", { mode: "boolean" }).notNull().default(false),
+  syncedAt: integer("synced_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
 // Master ticket -> linked (child) issue relationships, gathered from GitLab's
 // "Linked issues" feature AND cross-project `path#iid` references in the
 // description. Only synced for main-project issues.
@@ -184,3 +196,5 @@ export type IssueProgressHistory = typeof issueProgressHistory.$inferSelect;
 export type NewIssueProgressHistory = typeof issueProgressHistory.$inferInsert;
 export type IssueLink = typeof issueLinks.$inferSelect;
 export type NewIssueLink = typeof issueLinks.$inferInsert;
+export type GitlabRepo = typeof gitlabRepos.$inferSelect;
+export type NewGitlabRepo = typeof gitlabRepos.$inferInsert;

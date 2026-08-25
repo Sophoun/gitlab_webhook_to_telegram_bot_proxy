@@ -111,6 +111,15 @@ function initSchema(db: Database.Database) {
       link_type TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS gitlab_repos (
+      id INTEGER PRIMARY KEY,
+      config_project_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      path_with_namespace TEXT NOT NULL,
+      is_main INTEGER NOT NULL DEFAULT 0,
+      synced_at INTEGER DEFAULT (unixepoch())
+    );
+
     CREATE INDEX IF NOT EXISTS idx_sync_logs_project_id ON sync_logs(project_id);
     CREATE INDEX IF NOT EXISTS idx_sync_logs_created_at ON sync_logs(created_at);
     CREATE INDEX IF NOT EXISTS idx_user_activity_user ON user_activity(user_username);
@@ -126,6 +135,7 @@ function initSchema(db: Database.Database) {
       ON issue_progress_history(gitlab_project_id, issue_iid, stage, progress, updated_by, occurred_at);
     CREATE INDEX IF NOT EXISTS idx_issue_links_master ON issue_links(gitlab_project_id, issue_iid);
     CREATE INDEX IF NOT EXISTS idx_issue_links_target ON issue_links(linked_gitlab_project_id, linked_issue_iid);
+    CREATE INDEX IF NOT EXISTS idx_gitlab_repos_config ON gitlab_repos(config_project_id);
   `);
 
   // Backfill: auto-generate secrets for any existing rows without one

@@ -69,6 +69,8 @@ interface TeamWeekSectionProps {
   to: string;
   /** All issues (main project) — used to show each person's current tasks by stage */
   issues: ReviewIssue[];
+  /** GitLab repo id when the dashboard is scoped to a specific repo */
+  repo?: string | null;
 }
 
 const STAGE_BADGE_CLASS: Record<string, string> = {
@@ -87,6 +89,7 @@ export function TeamWeekSection({
   from,
   to,
   issues,
+  repo = null,
 }: TeamWeekSectionProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [detail, setDetail] = useState<PersonReport | null>(null);
@@ -102,9 +105,10 @@ export function TeamWeekSection({
     setDetail(null);
     setDetailLoading(true);
     try {
-      // Use the SAME period as the table so numbers always match
+      // Use the SAME period AND repo scope as the table so numbers always match
+      const repoQs = repo ? `&repo=${repo}` : "";
       const res = await fetch(
-        `/api/tracker/person-report?user=${encodeURIComponent(username)}&from=${from}&to=${to}`
+        `/api/tracker/person-report?user=${encodeURIComponent(username)}&from=${from}&to=${to}${repoQs}`
       );
       const data = await res.json();
       if (!data.error) setDetail(data);

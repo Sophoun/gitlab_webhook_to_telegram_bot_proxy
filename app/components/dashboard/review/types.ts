@@ -83,6 +83,12 @@ const TYPE_LABELS = ["Feature", "Bug", "Tech Debt", "Research", "Enhancement"];
  * Map GitLab labels + state onto the team's Kanban board.
  * Checks from the most advanced stage backwards so an issue carrying
  * both "In Progress" and "Status::To Do" resolves to In Progress.
+ *
+ * Aliases cover every squad board's column names:
+ * - Main:      Backlog, Refinement, Ready for Dev, In Progress, Peer Review, Testing/QA, Completed
+ * - Frontend/Mobile/DevOps: To Do, In Progress, QA / Design Review (or QA / Review), Done
+ * - Backend:   To Do, Development, Review / QA, Integrated
+ * - QA squad:  Status::Ready to Test, Status::In Testing, Status::Verified
  */
 export function parseBoardLabels(
   labels: string | null,
@@ -102,13 +108,26 @@ export function parseBoardLabels(
 
   let boardStage: string;
   if (state === "closed") boardStage = "Done";
+  else if (has("done")) boardStage = "Done";
   else if (has("peer review")) boardStage = "Peer Review";
-  else if (has("testing")) boardStage = "Testing/QA";
-  else if (has("completed") || has("integrated")) boardStage = "Completed";
-  else if (has("in progress")) boardStage = "In Progress";
+  else if (
+    has("testing") ||
+    has("qa") ||
+    has("uat") ||
+    has("ready to test")
+  )
+    boardStage = "Testing/QA";
+  else if (
+    has("completed") ||
+    has("integrated") ||
+    has("verified") ||
+    has("ready to release")
+  )
+    boardStage = "Completed";
+  else if (has("in progress") || has("development")) boardStage = "In Progress";
   else if (has("ready for dev")) boardStage = "Ready for Dev";
   else if (has("refinement")) boardStage = "Refinement";
-  else if (has("backlog") || has("to do")) boardStage = "Backlog";
+  else if (has("backlog") || has("to do") || has("todo")) boardStage = "Backlog";
   else boardStage = "No Stage";
 
   const prioToken = tokens.find((t) => /^p[0-3]\b/i.test(t));
@@ -188,9 +207,17 @@ export interface ActivityItem {
   occurredAt: string;
 }
 
+export interface RepoInfo {
+  id: number;
+  name: string;
+  pathWithNamespace: string;
+  isMain: boolean;
+}
+
 export interface ReviewFacets {
   projects: Array<{ id: number; name: string }>;
   authors: Array<{ username: string; name: string }>;
+  repos: RepoInfo[];
 }
 
 export interface ReviewData {

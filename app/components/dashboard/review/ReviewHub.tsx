@@ -137,10 +137,16 @@ export function ReviewHub() {
     issues.filter((i) => i.state === "open" && i.boardStage === "Testing/QA").map((i) => i.qaProgress)
   );
 
+  // Repo scoping: null = main project(s), otherwise a GitLab repo id.
+  // Primitive string dep keeps useCallback/useEffect stable.
+  const [selectedRepo, setSelectedRepo] = useState<string>("");
+  const repoParam = selectedRepo && !isNaN(parseInt(selectedRepo)) ? selectedRepo : null;
+
   const fetchTeam = useCallback(async () => {
     setTeamLoading(true);
     try {
-      const res = await fetch(`/api/tracker/team-week?from=${fromIso}&to=${toIso}`);
+      const repoQs = repoParam ? `&repo=${repoParam}` : "";
+      const res = await fetch(`/api/tracker/team-week?from=${fromIso}&to=${toIso}${repoQs}`);
       const data = await res.json();
       setPeople(data.error ? [] : data.people || []);
     } catch (error) {
@@ -149,12 +155,13 @@ export function ReviewHub() {
     } finally {
       setTeamLoading(false);
     }
-  }, [fromIso, toIso]);
+  }, [fromIso, toIso, repoParam]);
 
   const fetchIssues = useCallback(async () => {
     setIssuesLoading(true);
     try {
-      const res = await fetch("/api/tracker/review");
+      const repoQs = repoParam ? `?repo=${repoParam}` : "";
+      const res = await fetch(`/api/tracker/review${repoQs}`);
       const data = await res.json();
       setReview(data.error ? null : data);
     } catch (error) {
@@ -163,7 +170,7 @@ export function ReviewHub() {
     } finally {
       setIssuesLoading(false);
     }
-  }, []);
+  }, [repoParam]);
 
   useEffect(() => {
     fetchTeam();
@@ -342,10 +349,32 @@ export function ReviewHub() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Issue Review</h1>
           <p className="text-muted-foreground mt-1">
-            Team activity and issue tracking for the main project
+            {repoParam
+              ? `Scoped to ${review?.facets.repos.find((r) => String(r.id) === repoParam)?.pathWithNamespace ?? "selected repo"}`
+              : "Team activity and issue tracking for the main project"}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
+          {/* Repo selector — main project or any synced child repo */}
+          <select
+            value={selectedRepo}
+            onChange={(e) => {
+              setSelectedRepo(e.target.value);
+              setSelectedIssue(null);
+            }}
+            className="h-9 rounded-md border bg-background px-3 text-sm"
+            aria-label="Repository scope"
+          >
+            <option value="">Main Project</option>
+            {(review?.facets.repos || [])
+              .filter((r) => !r.isMain)
+              .map((r) => (
+                <option key={r.id} value={String(r.id)}>
+                  {r.pathWithNamespace}
+                </option>
+              ))}
+          </select>
+
           {/* Period selector */}
           <div className="flex items-center rounded-lg border overflow-hidden">
             {(["day", "week", "month"] as PeriodType[]).map((t) => (
@@ -437,6 +466,7 @@ export function ReviewHub() {
         from={fromIso}
         to={toIso}
         issues={issues}
+        repo={repoParam}
       />
 
       {/* Section 2: Issue tracker */}

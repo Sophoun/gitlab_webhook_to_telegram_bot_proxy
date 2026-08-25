@@ -7,11 +7,12 @@ import {
   issueProgress,
   issueProgressHistory,
   issueLinks,
+  gitlabRepos,
 } from "@/db/schema";
 import { createGitLabClient } from "@/lib/gitlab-api";
 import { parseProgressCommands, parseProgressUpdate } from "@/lib/progress-parser";
 import { parseCrossProjectRefs } from "@/lib/issue-links";
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 
 export async function POST(request: NextRequest) {
   try {
@@ -60,6 +61,32 @@ export async function POST(request: NextRequest) {
           ? gitlabProjects.filter((gp) => targetGitlabIds.has(gp.id))
           : gitlabProjects;
 
+        // Cache every repo seen this run so the dashboard can offer per-repo
+        // scoping (child repos have their own boards and teams).
+        const mainId = parseInt(config.mgmtId);
+        for (const gp of gitlabProjects) {
+          await db
+            .insert(gitlabRepos)
+            .values({
+              id: gp.id,
+              configProjectId: config.id,
+              name: gp.name,
+              pathWithNamespace: gp.path_with_namespace,
+              isMain: gp.id === mainId,
+              syncedAt: new Date(),
+            })
+            .onConflictDoUpdate({
+              target: gitlabRepos.id,
+              set: {
+                configProjectId: config.id,
+                name: gp.name,
+                pathWithNamespace: gp.path_with_namespace,
+                isMain: gp.id === mainId,
+                syncedAt: new Date(),
+              },
+            });
+        }
+
         if (projectsToSync.length === 0) {
           console.log(`  No matching projects to sync for this config`);
           continue;
@@ -81,9 +108,16 @@ export async function POST(request: NextRequest) {
             eq(issueAnalytics.gitlabProjectId, gitlabProject.id)
           );
           if (isMainProject) {
-            await db.delete(issueLinks).where(
-              eq(issueLinks.gitlabProjectId, gitlabProject.id)
-            );
+            // Keep child-contributed subtask_ref rows; they are owned by the
+            // child repo's own sync (deleted/rebuilt there).
+            await db
+              .delete(issueLinks)
+              .where(
+                and(
+                  eq(issueLinks.gitlabProjectId, gitlabProject.id),
+                  ne(issueLinks.linkType, "subtask_ref")
+                )
+              );
           }
 
           // Collect all activities for batch insert
@@ -331,6 +365,41 @@ export async function POST(request: NextRequest) {
                 const targetId = pathToProjectId.get(ref.path.toLowerCase());
                 if (targetId !== undefined) {
                   addLink(targetId, ref.iid, "description_ref");
+                }
+              }
+            }
+          }
+
+          // Child repos: capture "Parent: group/repo#123" references that point
+          // AT master tickets. Stored from the master's perspective so the
+          // review API finds them via (gitlab_project_id, issue_iid) of the
+          // master. Rows are owned by this child (link_type='subtask_ref') and
+          // rebuilt on every child sync to stay fresh.
+          if (!isMainProject) {
+            await db
+              .delete(issueLinks)
+              .where(
+                and(
+                  eq(issueLinks.linkedGitlabProjectId, gitlabProject.id),
+                  eq(issueLinks.linkType, "subtask_ref")
+                )
+              );
+            for (const issue of issues) {
+              for (const ref of parseCrossProjectRefs(issue.description)) {
+                const targetId = pathToProjectId.get(ref.path.toLowerCase());
+                if (
+                  targetId !== undefined &&
+                  targetId !== gitlabProject.id &&
+                  ref.iid > 0
+                ) {
+                  issueLinksToInsert.push({
+                    projectId: config.id,
+                    gitlabProjectId: targetId,
+                    issueIid: ref.iid,
+                    linkedGitlabProjectId: gitlabProject.id,
+                    linkedIssueIid: issue.iid,
+                    linkType: "subtask_ref",
+                  });
                 }
               }
             }
