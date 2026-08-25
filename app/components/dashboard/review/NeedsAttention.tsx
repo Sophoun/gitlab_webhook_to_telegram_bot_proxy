@@ -5,6 +5,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import type { ReviewIssue } from "./types";
 import {
+  ageDays,
+  categorizeAttention,
+  type AttentionCategory,
+} from "./attention";
+import {
   AlertTriangle,
   Ban,
   Hammer,
@@ -23,97 +28,19 @@ interface NeedsAttentionProps {
   onSelectIssue: (issue: ReviewIssue) => void;
 }
 
-const STUCK_DEV_DAYS = 7;
-const REFINEMENT_DAYS = 7;
-const READY_DAYS = 5;
-const REVIEW_DAYS = 3;
-const QA_DAYS = 5;
-
-function ageDays(iso: string): number {
-  return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
-}
-
-function isBlocked(issue: ReviewIssue): boolean {
-  return (issue.labels || "")
-    .split(",")
-    .some((t) => t.trim().toLowerCase().includes("blocked"));
-}
-
-interface Category {
-  key: string;
-  title: string;
-  hint: string;
-  icon: typeof Ban;
-  tone: string;
-  issues: ReviewIssue[];
-}
+const CATEGORY_META: Record<string, { icon: typeof Ban; tone: string }> = {
+  blocked: { icon: Ban, tone: "text-red-600" },
+  "stuck-refinement": { icon: SearchCheck, tone: "text-slate-600" },
+  "not-picked-up": { icon: PlayCircle, tone: "text-cyan-700" },
+  "stuck-dev": { icon: Hammer, tone: "text-orange-600" },
+  "review-wait": { icon: Eye, tone: "text-yellow-600" },
+  "qa-bottleneck": { icon: FlaskConical, tone: "text-amber-600" },
+};
 
 export function NeedsAttention({ issues, onSelectIssue }: NeedsAttentionProps) {
   const [openCategory, setOpenCategory] = useState<string | null>(null);
 
-  const openIssues = issues.filter((i) => i.state === "open");
-
-  const categories: Category[] = [
-    {
-      key: "blocked",
-      title: "Blocked",
-      hint: "Tickets labeled 'blocked' — unblock these first",
-      icon: Ban,
-      tone: "text-red-600",
-      issues: openIssues.filter(isBlocked),
-    },
-    {
-      key: "stuck-refinement",
-      title: "Stuck in Refinement",
-      hint: `In Refinement for ${REFINEMENT_DAYS}+ days — scoping is stalled`,
-      icon: SearchCheck,
-      tone: "text-slate-600",
-      issues: openIssues.filter(
-        (i) => i.boardStage === "Refinement" && ageDays(i.createdAt) >= REFINEMENT_DAYS
-      ),
-    },
-    {
-      key: "not-picked-up",
-      title: "Ready but Not Picked Up",
-      hint: `Ready for Dev for ${READY_DAYS}+ days — squads should start these`,
-      icon: PlayCircle,
-      tone: "text-cyan-700",
-      issues: openIssues.filter(
-        (i) => i.boardStage === "Ready for Dev" && ageDays(i.createdAt) >= READY_DAYS
-      ),
-    },
-    {
-      key: "stuck-dev",
-      title: "Stuck in Development",
-      hint: `In Progress for ${STUCK_DEV_DAYS}+ days since creation`,
-      icon: Hammer,
-      tone: "text-orange-600",
-      issues: openIssues.filter(
-        (i) => i.boardStage === "In Progress" && ageDays(i.createdAt) >= STUCK_DEV_DAYS
-      ),
-    },
-    {
-      key: "review-wait",
-      title: "Waiting on Review",
-      hint: `In Peer Review for ${REVIEW_DAYS}+ days`,
-      icon: Eye,
-      tone: "text-yellow-600",
-      issues: openIssues.filter(
-        (i) => i.boardStage === "Peer Review" && ageDays(i.createdAt) >= REVIEW_DAYS
-      ),
-    },
-    {
-      key: "qa-bottleneck",
-      title: "QA Bottleneck",
-      hint: `In Testing/QA for ${QA_DAYS}+ days`,
-      icon: FlaskConical,
-      tone: "text-amber-600",
-      issues: openIssues.filter(
-        (i) => i.boardStage === "Testing/QA" && ageDays(i.createdAt) >= QA_DAYS
-      ),
-    },
-  ];
-
+  const categories = categorizeAttention(issues);
   const totalFlagged = categories.reduce((sum, c) => sum + c.issues.length, 0);
 
   return (
@@ -122,9 +49,7 @@ export function NeedsAttention({ issues, onSelectIssue }: NeedsAttentionProps) {
         <CardTitle className="flex items-center gap-2 text-base">
           <AlertTriangle className="h-4 w-4 text-orange-500" />
           Needs Attention
-          {totalFlagged > 0 && (
-            <Badge variant="destructive">{totalFlagged}</Badge>
-          )}
+          {totalFlagged > 0 && <Badge variant="destructive">{totalFlagged}</Badge>}
         </CardTitle>
         <CardDescription>
           Tickets that are blocked or moving too slow — check these first
@@ -137,10 +62,13 @@ export function NeedsAttention({ issues, onSelectIssue }: NeedsAttentionProps) {
             Nothing stuck — everything is moving
           </div>
         ) : (
-          categories.map((cat) => {
+          categories.map((cat: AttentionCategory) => {
             if (cat.issues.length === 0) return null;
             const isOpen = openCategory === cat.key;
-            const Icon = cat.icon;
+            const meta = CATEGORY_META[cat.key];
+            const Icon = meta?.icon ?? AlertTriangle;
+            const tone = meta?.tone ?? "text-muted-foreground";
+
             return (
               <div key={cat.key} className="border rounded-lg overflow-hidden">
                 <button
@@ -152,7 +80,7 @@ export function NeedsAttention({ issues, onSelectIssue }: NeedsAttentionProps) {
                   ) : (
                     <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
                   )}
-                  <Icon className={`h-4 w-4 shrink-0 ${cat.tone}`} />
+                  <Icon className={`h-4 w-4 shrink-0 ${tone}`} />
                   <span className="font-medium text-sm flex-1">{cat.title}</span>
                   <span className="text-xs text-muted-foreground hidden md:inline">
                     {cat.hint}
@@ -165,6 +93,7 @@ export function NeedsAttention({ issues, onSelectIssue }: NeedsAttentionProps) {
                 {isOpen && (
                   <div className="border-t divide-y">
                     {cat.issues
+                      .slice()
                       .sort((a, b) => ageDays(b.createdAt) - ageDays(a.createdAt))
                       .map((issue) => (
                         <button

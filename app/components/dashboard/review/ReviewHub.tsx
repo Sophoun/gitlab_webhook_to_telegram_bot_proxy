@@ -10,6 +10,7 @@ import { TeamWeekSection } from "./TeamWeekSection";
 import { BoardOverview } from "./BoardOverview";
 import { NeedsAttention } from "./NeedsAttention";
 import { WIP_LIMIT, type ReviewData, type ReviewIssue } from "./types";
+import { ageDays, categorizeAttention } from "./attention";
 import {
   ChevronLeft,
   ChevronRight,
@@ -180,8 +181,10 @@ export function ReviewHub() {
     setExporting(true);
     try {
       const XLSX = await import("xlsx");
-      const issues = review?.issues || [];
+      const allIssues = review?.issues || [];
+      const attention = categorizeAttention(allIssues);
 
+      // Sheet 1: Team Activity (selected period)
       const teamSheet = XLSX.utils.json_to_sheet(
         people.map((p) => ({
           Name: p.name,
@@ -193,9 +196,35 @@ export function ReviewHub() {
           WIP: wipMap[p.username] || 0,
         }))
       );
+      teamSheet["!cols"] = [
+        { wch: 22 }, { wch: 18 }, { wch: 15 }, { wch: 14 }, { wch: 12 }, { wch: 13 }, { wch: 8 },
+      ];
 
+      // Sheet 2: Needs Attention
+      const attentionRows: Array<Record<string, string | number>> = [];
+      for (const cat of attention) {
+        for (const i of cat.issues) {
+          attentionRows.push({
+            Category: cat.title,
+            IID: i.issueIid,
+            Title: i.issueTitle || "",
+            Author: i.authorName,
+            Stage: i.boardStage,
+            Priority: i.priority || "",
+            "Age (days)": ageDays(i.createdAt),
+            URL: i.issueUrl || "",
+          });
+        }
+      }
+      const attentionSheet = XLSX.utils.json_to_sheet(attentionRows);
+      attentionSheet["!cols"] = [
+        { wch: 24 }, { wch: 8 }, { wch: 50 }, { wch: 20 }, { wch: 14 }, { wch: 10 },
+        { wch: 12 }, { wch: 40 },
+      ];
+
+      // Sheet 3: All Issues
       const issueSheet = XLSX.utils.json_to_sheet(
-        issues.map((i) => ({
+        allIssues.map((i) => ({
           IID: i.issueIid,
           Title: i.issueTitle || "",
           Project: i.projectName || "",
@@ -205,28 +234,66 @@ export function ReviewHub() {
           Priority: i.priority || "",
           Team: i.team || "",
           Type: i.type || "",
-          Created: i.createdAt ? new Date(i.createdAt).toLocaleString() : "",
-          Closed: i.closedAt ? new Date(i.closedAt).toLocaleString() : "",
+          Created: i.createdAt ? new Date(i.createdAt).toLocaleDateString() : "",
+          Closed: i.closedAt ? new Date(i.closedAt).toLocaleDateString() : "",
+          "Age (days)": i.state === "open" ? ageDays(i.createdAt) : "",
           "Cycle Time (hours)": i.timeToCloseHours ?? "",
           Comments: i.commentCount ?? 0,
           URL: i.issueUrl || "",
         }))
       );
+      issueSheet["!cols"] = [
+        { wch: 8 }, { wch: 50 }, { wch: 16 }, { wch: 20 }, { wch: 9 }, { wch: 14 },
+        { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 11 },
+        { wch: 17 }, { wch: 10 }, { wch: 40 },
+      ];
 
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, teamSheet, "Team Activity");
+      if (attentionRows.length > 0) {
+        XLSX.utils.book_append_sheet(wb, attentionSheet, "Needs Attention");
+      }
       XLSX.utils.book_append_sheet(wb, issueSheet, "All Issues");
 
-      if (review) {
-        const boardSheet = XLSX.utils.json_to_sheet(
-          review.boardDistribution.map((s) => ({ Stage: s.stage, Issues: s.count }))
-        );
-        XLSX.utils.book_append_sheet(wb, boardSheet, "Board Summary");
+      // Sheet 4: Board Summary with report info block
+      const summaryAoa: Array<Array<string | number>> = [];
+      summaryAoa.push(["Issue Review Export"]);
+      summaryAoa.push(["Generated", new Date().toLocaleString()]);
+      summaryAoa.push(["Period", `${rangeLabel(periodType, anchor)} (${periodType})`]);
+      summaryAoa.push([]);
+      summaryAoa.push(["BOARD STAGES"]);
+      summaryAoa.push(["Stage", "Issues"]);
+      for (const s of review?.boardDistribution || []) {
+        summaryAoa.push([s.stage, s.count]);
       }
+      summaryAoa.push([]);
+      summaryAoa.push(["OPEN BY PRIORITY"]);
+      summaryAoa.push(["Priority", "Open Issues"]);
+      for (const p of review?.priorityBreakdown || []) {
+        summaryAoa.push([p.priority, p.openCount]);
+      }
+      summaryAoa.push([]);
+      summaryAoa.push(["OPEN BY TEAM"]);
+      summaryAoa.push(["Team", "Open Issues"]);
+      for (const t of review?.teamBreakdown || []) {
+        summaryAoa.push([t.team, t.openCount]);
+      }
+      const wipViolators = (review?.people || []).filter((p) => p.wipCount > WIP_LIMIT);
+      if (wipViolators.length > 0) {
+        summaryAoa.push([]);
+        summaryAoa.push([`WIP VIOLATIONS (over ${WIP_LIMIT} In Progress)`]);
+        summaryAoa.push(["Name", "Username", "In Progress"]);
+        for (const p of wipViolators) {
+          summaryAoa.push([p.name, `@${p.username}`, p.wipCount]);
+        }
+      }
+      const summarySheet = XLSX.utils.aoa_to_sheet(summaryAoa);
+      summarySheet["!cols"] = [{ wch: 28 }, { wch: 30 }, { wch: 14 }];
+      XLSX.utils.book_append_sheet(wb, summarySheet, "Board Summary");
 
       XLSX.writeFile(
         wb,
-        `issue-review-${periodType}-${new Date().toISOString().slice(0, 10)}.xlsx`
+        `issue-review_${periodType}_${range.from.toISOString().slice(0, 10)}.xlsx`
       );
     } catch (error) {
       console.error("Export failed:", error);
