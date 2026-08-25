@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { issueAnalytics, userActivity, projects, issueProgress } from "@/db/schema";
+import {
+  issueAnalytics,
+  userActivity,
+  projects,
+  issueProgress,
+  issueLinks,
+} from "@/db/schema";
 import { and, eq, gte, desc, inArray, sql, type SQL } from "drizzle-orm";
 import {
   CYCLE_BUCKETS,
@@ -10,6 +16,7 @@ import {
   WORKFLOW_STAGES,
   WIP_LIMIT,
   type ReviewIssue,
+  type LinkedIssueInfo,
   type PersonStat,
 } from "@/app/components/dashboard/review/types";
 
@@ -92,6 +99,56 @@ export async function GET(request: NextRequest) {
       progressByKey.set(key, current);
     }
 
+    // ---- Fetch linked (child) issues for master tickets ----
+    const linkRows = await db.select().from(issueLinks);
+    const linksByMaster = new Map<string, LinkedIssueInfo[]>();
+    // Child analytics rows, fetched per child project so titles/states/URLs resolve
+    const childProjectIds = [...new Set(linkRows.map((l) => l.linkedGitlabProjectId))];
+    const childAnalyticsByKey = new Map<
+      string,
+      { issueTitle: string | null; state: string | null; issueUrl: string | null }
+    >();
+    for (const pid of childProjectIds) {
+      const iids = [
+        ...new Set(
+          linkRows.filter((l) => l.linkedGitlabProjectId === pid).map((l) => l.linkedIssueIid)
+        ),
+      ];
+      if (iids.length === 0) continue;
+      const childRows = await db
+        .select({
+          issueIid: issueAnalytics.issueIid,
+          issueTitle: issueAnalytics.issueTitle,
+          state: issueAnalytics.state,
+          issueUrl: issueAnalytics.issueUrl,
+        })
+        .from(issueAnalytics)
+        .where(and(eq(issueAnalytics.gitlabProjectId, pid), inArray(issueAnalytics.issueIid, iids)));
+      for (const c of childRows) {
+        childAnalyticsByKey.set(`${pid}:${c.issueIid}`, {
+          issueTitle: c.issueTitle,
+          state: c.state,
+          issueUrl: c.issueUrl,
+        });
+      }
+    }
+    for (const l of linkRows) {
+      const key = `${l.gitlabProjectId}:${l.issueIid}`;
+      const list = linksByMaster.get(key) ?? [];
+      const child = childAnalyticsByKey.get(`${l.linkedGitlabProjectId}:${l.linkedIssueIid}`);
+      const prog = progressByKey.get(`${l.linkedGitlabProjectId}:${l.linkedIssueIid}`);
+      list.push({
+        gitlabProjectId: l.linkedGitlabProjectId,
+        issueIid: l.linkedIssueIid,
+        title: child?.issueTitle ?? null,
+        state: child?.state ?? "unknown",
+        issueUrl: child?.issueUrl ?? null,
+        devProgress: prog?.dev ?? null,
+        qaProgress: prog?.qa ?? null,
+      });
+      linksByMaster.set(key, list);
+    }
+
     const issues: ReviewIssue[] = rows
       .map((r) => {
         // Normalize GitLab's "opened" to "open"
@@ -129,6 +186,8 @@ export async function GET(request: NextRequest) {
           priority: board.priority,
           team: board.team,
           type: board.type,
+          linkedIssues:
+            linksByMaster.get(`${r.gitlabProjectId}:${r.issueIid}`) ?? [],
         };
       })
       .filter((i) => (status === "open" || status === "closed" ? i.state === status : true));

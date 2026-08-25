@@ -19,6 +19,7 @@ import {
   MessageSquare,
   ExternalLink,
   Gauge,
+  FolderGit2,
 } from "lucide-react";
 import { WORKFLOW_STAGES, type ReviewIssue } from "./types";
 
@@ -48,6 +49,13 @@ interface PersonReport {
   createdIssues: ItemRef[];
   commentedOn: ItemRef[];
   mergedMrs: ItemRef[];
+  /** Work in non-main GitLab repos — kept separate from headline numbers */
+  childWork?: {
+    totalEvents: number;
+    closedIssues: ItemRef[];
+    mergedMrs: ItemRef[];
+    commitItems: ItemRef[];
+  };
 }
 
 interface TeamWeekSectionProps {
@@ -297,6 +305,49 @@ export function TeamWeekSection({
                                   </div>
                                 )}
                               </div>
+
+                              {/* Child-repo work (separate from headline numbers) */}
+                              {detail.childWork && detail.childWork.totalEvents > 0 && (
+                                <div className="pt-2 border-t">
+                                  <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
+                                    <FolderGit2 className="h-3 w-3 text-orange-500" />
+                                    Child project work ({detail.childWork.totalEvents} events —
+                                    not counted above)
+                                  </p>
+                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div>
+                                      <p className="text-xs text-muted-foreground mb-1.5">
+                                        Issues closed in child repos (
+                                        {detail.childWork.closedIssues.length})
+                                      </p>
+                                      <DetailList
+                                        items={detail.childWork.closedIssues}
+                                        empty="None"
+                                      />
+                                    </div>
+                                    <div>
+                                      <p className="text-xs text-muted-foreground mb-1.5">
+                                        MRs merged in child repos (
+                                        {detail.childWork.mergedMrs.length})
+                                      </p>
+                                      <DetailList
+                                        items={detail.childWork.mergedMrs}
+                                        empty="None"
+                                      />
+                                    </div>
+                                    <div>
+                                      <p className="text-xs text-muted-foreground mb-1.5">
+                                        Commits in child repos (
+                                        {detail.childWork.commitItems.length})
+                                      </p>
+                                      <DetailList
+                                        items={detail.childWork.commitItems}
+                                        empty="None"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
 
                               {/* This period's activity */}
                               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t">

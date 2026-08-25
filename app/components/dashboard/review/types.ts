@@ -1,3 +1,15 @@
+/** A child issue linked to a master ticket (from another GitLab project) */
+export interface LinkedIssueInfo {
+  gitlabProjectId: number;
+  issueIid: number;
+  title: string | null;
+  /** Raw GitLab state ("opened"/"closed"), "unknown" if not synced */
+  state: string;
+  issueUrl: string | null;
+  devProgress: number | null;
+  qaProgress: number | null;
+}
+
 export interface ReviewIssue {
   id: number;
   projectId: number;
@@ -25,6 +37,8 @@ export interface ReviewIssue {
   priority: string | null;
   team: string | null;
   type: string | null;
+  // Child issues linked from other GitLab projects
+  linkedIssues: LinkedIssueInfo[];
 }
 
 // The team's Kanban workflow, in board order

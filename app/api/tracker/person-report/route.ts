@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { userActivity, projects } from "@/db/schema";
-import { and, eq, gte, lte, asc, inArray, sql } from "drizzle-orm";
+import { and, eq, gte, lte, asc, inArray, notInArray, sql } from "drizzle-orm";
 
 interface ActivityRow {
   activityType: string;
@@ -142,6 +142,50 @@ export async function GET(request: NextRequest) {
       events,
     }));
 
+    // ---- Child-repo work (separate from headline numbers) ----
+    // Activity in non-main GitLab projects. Deliberately NOT included in
+    // `summary` — surfaced as its own section in the person detail view.
+    let childWork: {
+      totalEvents: number;
+      closedIssues: Array<ReturnType<typeof toItem>>;
+      mergedMrs: Array<ReturnType<typeof toItem>>;
+      commitItems: Array<ReturnType<typeof toItem>>;
+    } = {
+      totalEvents: 0,
+      closedIssues: [],
+      mergedMrs: [],
+      commitItems: [],
+    };
+
+    if (mainProjectIds.length > 0) {
+      const childRows: ActivityRow[] = await db
+        .select({
+          activityType: userActivity.activityType,
+          itemIid: userActivity.itemIid,
+          itemTitle: userActivity.itemTitle,
+          itemUrl: userActivity.itemUrl,
+          projectName: userActivity.projectName,
+          occurredAt: userActivity.occurredAt,
+        })
+        .from(userActivity)
+        .where(
+          and(
+            eq(userActivity.userUsername, user),
+            gte(userActivity.occurredAt, from),
+            lte(userActivity.occurredAt, to),
+            notInArray(userActivity.gitlabProjectId, mainProjectIds)
+          )
+        )
+        .orderBy(asc(userActivity.occurredAt));
+
+      childWork = {
+        totalEvents: childRows.length,
+        closedIssues: childRows.filter((r) => r.activityType === "issue_closed").map(toItem),
+        mergedMrs: childRows.filter((r) => r.activityType === "mr_merged").map(toItem),
+        commitItems: childRows.filter((r) => r.activityType === "commit").map(toItem),
+      };
+    }
+
     return NextResponse.json({
       user: { username: user, name: displayName },
       range: { from: from.toISOString(), to: to.toISOString() },
@@ -154,6 +198,7 @@ export async function GET(request: NextRequest) {
       mergedMrs: byType("mr_merged"),
       commits: byType("commit"),
       dailyActivity,
+      childWork,
     });
   } catch (error) {
     console.error("Failed to fetch person report:", error);

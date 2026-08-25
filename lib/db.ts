@@ -101,6 +101,16 @@ function initSchema(db: Database.Database) {
       occurred_at INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS issue_links (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id INTEGER NOT NULL,
+      gitlab_project_id INTEGER NOT NULL,
+      issue_iid INTEGER NOT NULL,
+      linked_gitlab_project_id INTEGER NOT NULL,
+      linked_issue_iid INTEGER NOT NULL,
+      link_type TEXT
+    );
+
     CREATE INDEX IF NOT EXISTS idx_sync_logs_project_id ON sync_logs(project_id);
     CREATE INDEX IF NOT EXISTS idx_sync_logs_created_at ON sync_logs(created_at);
     CREATE INDEX IF NOT EXISTS idx_user_activity_user ON user_activity(user_username);
@@ -114,6 +124,8 @@ function initSchema(db: Database.Database) {
     -- without duplicates. updated_by is NOT NULL so the index is deterministic.
     CREATE UNIQUE INDEX IF NOT EXISTS idx_issue_progress_history_dedup
       ON issue_progress_history(gitlab_project_id, issue_iid, stage, progress, updated_by, occurred_at);
+    CREATE INDEX IF NOT EXISTS idx_issue_links_master ON issue_links(gitlab_project_id, issue_iid);
+    CREATE INDEX IF NOT EXISTS idx_issue_links_target ON issue_links(linked_gitlab_project_id, linked_issue_iid);
   `);
 
   // Backfill: auto-generate secrets for any existing rows without one

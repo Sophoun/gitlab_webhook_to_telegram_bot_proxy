@@ -6,9 +6,11 @@ import {
   issueAnalytics,
   issueProgress,
   issueProgressHistory,
+  issueLinks,
 } from "@/db/schema";
 import { createGitLabClient } from "@/lib/gitlab-api";
 import { parseProgressCommands, parseProgressUpdate } from "@/lib/progress-parser";
+import { parseCrossProjectRefs } from "@/lib/issue-links";
 import { eq } from "drizzle-orm";
 
 export async function POST(request: NextRequest) {
@@ -34,6 +36,7 @@ export async function POST(request: NextRequest) {
       issueAnalyticsRecorded: 0,
       progressUpdatesRecorded: 0,
       progressHistoryRecorded: 0,
+      issueLinksRecorded: 0,
     };
 
     // Build a map of GitLab project IDs we want to sync
@@ -67,6 +70,9 @@ export async function POST(request: NextRequest) {
         for (const gitlabProject of projectsToSync) {
           console.log(`  Fetching data for: ${gitlabProject.path_with_namespace}`);
 
+          // Link sync only applies to MAIN projects (master tickets live there)
+          const isMainProject = parseInt(config.mgmtId) === gitlabProject.id;
+
           // Delete existing records for this GitLab project
           await db.delete(userActivity).where(
             eq(userActivity.gitlabProjectId, gitlabProject.id)
@@ -74,11 +80,23 @@ export async function POST(request: NextRequest) {
           await db.delete(issueAnalytics).where(
             eq(issueAnalytics.gitlabProjectId, gitlabProject.id)
           );
+          if (isMainProject) {
+            await db.delete(issueLinks).where(
+              eq(issueLinks.gitlabProjectId, gitlabProject.id)
+            );
+          }
 
           // Collect all activities for batch insert
           const activitiesToInsert: Array<typeof userActivity.$inferInsert> = [];
           const issueAnalyticsToInsert: Array<typeof issueAnalytics.$inferInsert> = [];
           const progressHistoryToInsert: Array<typeof issueProgressHistory.$inferInsert> = [];
+          const issueLinksToInsert: Array<typeof issueLinks.$inferInsert> = [];
+
+          // Namespace path -> GitLab project id, for resolving description refs
+          const pathToProjectId = new Map<string, number>();
+          for (const gp of gitlabProjects) {
+            pathToProjectId.set(gp.path_with_namespace.toLowerCase(), gp.id);
+          }
 
           // Fetch issues
           const issues = await client.getIssues(gitlabProject.id, from_date);
@@ -273,6 +291,49 @@ export async function POST(request: NextRequest) {
             } catch (error) {
               console.error(`    Error fetching notes for issue ${issue.iid}:`, error);
             }
+
+            // Linked issues (main projects only): formal "Linked issues"
+            // relations + cross-project `path#iid` references in the description
+            if (isMainProject) {
+              const seenTargets = new Set<string>();
+              const addLink = (
+                targetProjectId: number,
+                targetIid: number,
+                linkType: string
+              ) => {
+                if (!targetProjectId || targetProjectId <= 0) return;
+                const key = `${targetProjectId}#${targetIid}`;
+                if (key === `${gitlabProject.id}#${issue.iid}`) return; // self-link
+                if (seenTargets.has(key)) return;
+                seenTargets.add(key);
+                issueLinksToInsert.push({
+                  projectId: config.id,
+                  gitlabProjectId: gitlabProject.id,
+                  issueIid: issue.iid,
+                  linkedGitlabProjectId: targetProjectId,
+                  linkedIssueIid: targetIid,
+                  linkType,
+                });
+              };
+
+              try {
+                const links = await client.getIssueLinks(gitlabProject.id, issue.iid);
+                for (const l of links) {
+                  addLink(l.project_id, l.iid, l.link_type || "relates_to");
+                }
+              } catch (error) {
+                console.warn(
+                  `    Could not fetch links for issue ${issue.iid}: ${error instanceof Error ? error.message : error}`
+                );
+              }
+
+              for (const ref of parseCrossProjectRefs(issue.description)) {
+                const targetId = pathToProjectId.get(ref.path.toLowerCase());
+                if (targetId !== undefined) {
+                  addLink(targetId, ref.iid, "description_ref");
+                }
+              }
+            }
           }
 
           // Fetch merge requests
@@ -412,6 +473,17 @@ export async function POST(request: NextRequest) {
             console.log(
               `    Recorded ${progressHistoryToInsert.length} progress history entries`
             );
+          }
+
+          // Batch insert issue links (main projects only)
+          if (issueLinksToInsert.length > 0) {
+            const BATCH_SIZE = 100;
+            for (let i = 0; i < issueLinksToInsert.length; i += BATCH_SIZE) {
+              const batch = issueLinksToInsert.slice(i, i + BATCH_SIZE);
+              await db.insert(issueLinks).values(batch);
+            }
+            stats.issueLinksRecorded += issueLinksToInsert.length;
+            console.log(`    Inserted ${issueLinksToInsert.length} issue links`);
           }
         }
 

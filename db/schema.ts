@@ -106,6 +106,20 @@ export const issueProgressHistory = sqliteTable("issue_progress_history", {
   occurredAt: integer("occurred_at", { mode: "timestamp" }).notNull(),
 });
 
+// Master ticket -> linked (child) issue relationships, gathered from GitLab's
+// "Linked issues" feature AND cross-project `path#iid` references in the
+// description. Only synced for main-project issues.
+export const issueLinks = sqliteTable("issue_links", {
+  id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  projectId: integer("project_id").notNull(),
+  gitlabProjectId: integer("gitlab_project_id").notNull(),
+  issueIid: integer("issue_iid").notNull(),
+  linkedGitlabProjectId: integer("linked_gitlab_project_id").notNull(),
+  linkedIssueIid: integer("linked_issue_iid").notNull(),
+  // "relates_to" | "blocks" | "is_blocked_by" | "description_ref"
+  linkType: text("link_type"),
+});
+
 // Zod schemas for validation
 export const insertProjectSchema = createInsertSchema(projects, {
   name: z.string().min(1, "Name is required"),
@@ -168,3 +182,5 @@ export type IssueProgress = typeof issueProgress.$inferSelect;
 export type NewIssueProgress = typeof issueProgress.$inferInsert;
 export type IssueProgressHistory = typeof issueProgressHistory.$inferSelect;
 export type NewIssueProgressHistory = typeof issueProgressHistory.$inferInsert;
+export type IssueLink = typeof issueLinks.$inferSelect;
+export type NewIssueLink = typeof issueLinks.$inferInsert;

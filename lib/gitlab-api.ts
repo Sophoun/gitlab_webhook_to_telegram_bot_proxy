@@ -59,6 +59,16 @@ export interface GitLabMember {
   public_email?: string | null;
 }
 
+export interface GitLabIssueLink {
+  id: number;
+  iid: number;
+  project_id: number;
+  title: string;
+  state: string;
+  link_type: string;
+  web_url?: string;
+}
+
 export interface GitLabNote {
   id: number;
   body: string;
@@ -289,6 +299,40 @@ export class GitLabClient {
     }
 
     return notes;
+  }
+
+  /**
+   * Fetch issues formally linked to this issue via GitLab's "Linked issues"
+   * feature (relates_to / blocks / is_blocked_by). May include issues from
+   * other projects.
+   */
+  async getIssueLinks(
+    projectId: number,
+    issueIid: number
+  ): Promise<GitLabIssueLink[]> {
+    const links: GitLabIssueLink[] = [];
+    let page = 1;
+    const perPage = 100;
+
+    while (true) {
+      const url = `${this.apiBase}/projects/${projectId}/issues/${issueIid}/links?page=${page}&per_page=${perPage}`;
+      const response = await fetchWithRetry(url, { headers: this.getHeaders() });
+      const data = await response.json();
+
+      if (!Array.isArray(data) || data.length === 0) {
+        break;
+      }
+
+      links.push(...data);
+      await sleep(RATE_LIMIT_DELAY);
+
+      if (data.length < perPage) {
+        break;
+      }
+      page++;
+    }
+
+    return links;
   }
 
   async getMergeRequestNotes(

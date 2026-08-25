@@ -1,6 +1,6 @@
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -22,6 +22,7 @@ import {
   Minus,
   Hammer,
   FlaskConical,
+  Link2,
 } from "lucide-react";
 
 interface IssueDetailViewProps {
@@ -85,6 +86,20 @@ export function IssueDetailView({
   const commenterCount = issue.uniqueCommenters
     ? issue.uniqueCommenters.split(",").filter((c) => c.trim()).length
     : 0;
+
+  // Rollup across linked child issues: closed ratio + average known progress
+  const linkedRollupLabel = (() => {
+    const total = issue.linkedIssues.length;
+    const closed = issue.linkedIssues.filter((c) => c.state === "closed").length;
+    const progressValues = issue.linkedIssues.flatMap((c) =>
+      [c.devProgress, c.qaProgress].filter((v): v is number => v !== null)
+    );
+    const avg =
+      progressValues.length > 0
+        ? Math.round(progressValues.reduce((a, b) => a + b, 0) / progressValues.length)
+        : null;
+    return `${closed}/${total} closed${avg !== null ? ` · avg progress ${avg}%` : ""}`;
+  })();
 
   return (
     <div className="space-y-6">
@@ -302,6 +317,65 @@ export function IssueDetailView({
           </Card>
         );
       })()}
+
+      {/* Linked child issues from other projects */}
+      {issue.linkedIssues.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Link2 className="h-4 w-4" />
+              Linked Issues
+            </CardTitle>
+            <CardDescription>{linkedRollupLabel}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {issue.linkedIssues.map((child) => {
+              const closed = child.state === "closed";
+              return (
+                <div
+                  key={`${child.gitlabProjectId}#${child.issueIid}`}
+                  className="flex items-center gap-3 rounded-lg border p-2.5"
+                >
+                  <Badge variant={closed ? "secondary" : "outline"} className="text-xs shrink-0">
+                    {closed ? "closed" : child.state === "unknown" ? "?" : "open"}
+                  </Badge>
+                  <span className="font-mono text-xs text-muted-foreground shrink-0">
+                    #{child.issueIid}
+                  </span>
+                  {child.issueUrl ? (
+                    <a
+                      href={child.issueUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm truncate flex-1 hover:underline"
+                    >
+                      {child.title || `Issue #${child.issueIid}`}
+                    </a>
+                  ) : (
+                    <span className="text-sm truncate flex-1">
+                      {child.title || `Issue #${child.issueIid}`}
+                    </span>
+                  )}
+                  <div className="flex items-center gap-3 shrink-0">
+                    {child.devProgress !== null && (
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <Hammer className="h-3 w-3 text-blue-500" />
+                        {child.devProgress}%
+                      </span>
+                    )}
+                    {child.qaProgress !== null && (
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <FlaskConical className="h-3 w-3 text-orange-500" />
+                        {child.qaProgress}%
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Key metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
