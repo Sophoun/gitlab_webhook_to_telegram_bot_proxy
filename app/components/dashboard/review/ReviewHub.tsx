@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { SyncDialog } from "../SyncDialog";
 import { IssueDetailView } from "../IssueDetailView";
@@ -333,12 +333,24 @@ export function ReviewHub() {
         issues={issues}
       />
 
-      {/* Section 2: All issues */}
+      {/* Section 2: Issue tracker */}
       {selectedIssue ? (
-        <IssueDetailView issue={selectedIssue} onBack={() => setSelectedIssue(null)} />
+        <IssueDetailView
+          issue={selectedIssue}
+          onBack={() => setSelectedIssue(null)}
+          teamAvgCycleTime={review?.kpis.avgCycleTime ?? null}
+          teamAvgFirstResponse={review?.kpis.avgFirstResponse ?? null}
+        />
       ) : (
         <Card>
-          <CardContent className="pt-6">
+          <CardHeader>
+            <CardTitle>Issue Tracker</CardTitle>
+            <CardDescription>
+              Open tasks by board stage — click any issue for its full story
+              (timeline, collaborators, performance)
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
             <IssuesTable issues={issues} onSelectIssue={(issue) => setSelectedIssue(issue)} />
           </CardContent>
         </Card>
