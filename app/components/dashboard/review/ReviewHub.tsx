@@ -8,6 +8,7 @@ import { IssueDetailView } from "../IssueDetailView";
 import { IssuesTable } from "./IssuesTable";
 import { TeamWeekSection } from "./TeamWeekSection";
 import { BoardOverview } from "./BoardOverview";
+import { NeedsAttention } from "./NeedsAttention";
 import { WIP_LIMIT, type ReviewData, type ReviewIssue } from "./types";
 import {
   ChevronLeft,
@@ -321,7 +322,10 @@ export function ReviewHub() {
         />
       )}
 
-      {/* Section 1: Team activity for the selected period */}
+      {/* Section 1: Problem tickets */}
+      <NeedsAttention issues={issues} onSelectIssue={(issue) => setSelectedIssue(issue)} />
+
+      {/* Section 2: Team activity for the selected period */}
       <TeamWeekSection
         people={people}
         loading={teamLoading}
