@@ -224,6 +224,8 @@ export function ReviewHub() {
             Title: i.issueTitle || "",
             Author: i.authorName,
             Stage: i.boardStage,
+            "Dev Progress (%)": i.devProgress ?? "",
+            "QA Progress (%)": i.qaProgress ?? "",
             Priority: i.priority || "",
             "Age (days)": ageDays(i.createdAt),
             URL: i.issueUrl || "",
@@ -232,8 +234,8 @@ export function ReviewHub() {
       }
       const attentionSheet = XLSX.utils.json_to_sheet(attentionRows);
       attentionSheet["!cols"] = [
-        { wch: 24 }, { wch: 8 }, { wch: 50 }, { wch: 20 }, { wch: 14 }, { wch: 10 },
-        { wch: 12 }, { wch: 40 },
+        { wch: 24 }, { wch: 8 }, { wch: 50 }, { wch: 20 }, { wch: 14 },
+        { wch: 15 }, { wch: 15 }, { wch: 10 }, { wch: 12 }, { wch: 40 },
       ];
 
       // Sheet 3: All Issues
@@ -245,6 +247,8 @@ export function ReviewHub() {
           Author: i.authorName,
           Status: i.state,
           "Board Stage": i.boardStage,
+          "Dev Progress (%)": i.devProgress ?? "",
+          "QA Progress (%)": i.qaProgress ?? "",
           Priority: i.priority || "",
           Team: i.team || "",
           Type: i.type || "",
@@ -258,8 +262,8 @@ export function ReviewHub() {
       );
       issueSheet["!cols"] = [
         { wch: 8 }, { wch: 50 }, { wch: 16 }, { wch: 20 }, { wch: 9 }, { wch: 14 },
-        { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 11 },
-        { wch: 17 }, { wch: 10 }, { wch: 40 },
+        { wch: 15 }, { wch: 15 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 12 },
+        { wch: 12 }, { wch: 11 }, { wch: 17 }, { wch: 10 }, { wch: 40 },
       ];
 
       const wb = XLSX.utils.book_new();
@@ -291,6 +295,17 @@ export function ReviewHub() {
       summaryAoa.push(["Team", "Open Issues"]);
       for (const t of review?.teamBreakdown || []) {
         summaryAoa.push([t.team, t.openCount]);
+      }
+      if (avgDevProgress !== null || avgQaProgress !== null) {
+        summaryAoa.push([]);
+        summaryAoa.push(["AVERAGE WORK PROGRESS (from /dev, /test, /uat comment commands)"]);
+        summaryAoa.push(["Metric", "Average"]);
+        if (avgDevProgress !== null) {
+          summaryAoa.push(["Avg Dev Progress (open In Progress)", `${Math.round(avgDevProgress)}%`]);
+        }
+        if (avgQaProgress !== null) {
+          summaryAoa.push(["Avg QA Progress (open Testing/QA)", `${Math.round(avgQaProgress)}%`]);
+        }
       }
       const wipViolators = (review?.people || []).filter((p) => p.wipCount > WIP_LIMIT);
       if (wipViolators.length > 0) {
