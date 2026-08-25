@@ -2,13 +2,18 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { WIP_LIMIT } from "./types";
-import { Columns3, Flag, UsersRound } from "lucide-react";
+import { Columns3, Flag, UsersRound, Hammer, FlaskConical } from "lucide-react";
 
 interface BoardOverviewProps {
   boardDistribution: Array<{ stage: string; count: number }>;
   priorityBreakdown: Array<{ priority: string; openCount: number }>;
   teamBreakdown: Array<{ team: string; openCount: number }>;
+  /** Average dev progress across open "In Progress" issues that have progress set */
+  avgDevProgress?: number | null;
+  /** Average QA progress across open "Testing/QA" issues that have progress set */
+  avgQaProgress?: number | null;
 }
 
 const STAGE_COLORS: Record<string, string> = {
@@ -26,6 +31,8 @@ export function BoardOverview({
   boardDistribution,
   priorityBreakdown,
   teamBreakdown,
+  avgDevProgress = null,
+  avgQaProgress = null,
 }: BoardOverviewProps) {
   return (
     <Card>
@@ -89,6 +96,40 @@ export function BoardOverview({
             </div>
           </div>
         </div>
+
+        {/* Average work progress (from /dev, /test, /uat comment commands) */}
+        {(avgDevProgress !== null || avgQaProgress !== null) && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {avgDevProgress !== null && (
+              <div>
+                <p className="text-sm font-medium mb-2 flex items-center gap-1.5">
+                  <Hammer className="h-3.5 w-3.5 text-blue-500" />
+                  Avg Dev Progress
+                </p>
+                <div className="flex items-center gap-3">
+                  <Progress value={avgDevProgress} className="h-2 flex-1" />
+                  <span className="text-sm font-semibold shrink-0">
+                    {Math.round(avgDevProgress)}%
+                  </span>
+                </div>
+              </div>
+            )}
+            {avgQaProgress !== null && (
+              <div>
+                <p className="text-sm font-medium mb-2 flex items-center gap-1.5">
+                  <FlaskConical className="h-3.5 w-3.5 text-orange-500" />
+                  Avg QA Progress
+                </p>
+                <div className="flex items-center gap-3">
+                  <Progress value={avgQaProgress} className="h-2 flex-1" />
+                  <span className="text-sm font-semibold shrink-0">
+                    {Math.round(avgQaProgress)}%
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <p className="text-xs text-muted-foreground">
           WIP limit is {WIP_LIMIT} per person — people exceeding it are flagged in the

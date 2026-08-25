@@ -294,7 +294,18 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
                   </TableCell>
                   <TableCell>
                     {(() => {
-                      const pct = getStageProgress(issue.boardStage);
+                      // Prefer real progress from comment commands (/dev, /test, /uat)
+                      // based on the current stage; fall back to stage-based estimate.
+                      let pct: number | null;
+                      if (issue.boardStage === "Testing/QA") {
+                        pct = issue.qaProgress;
+                      } else if (
+                        ["In Progress", "Peer Review", "Completed"].includes(issue.boardStage)
+                      ) {
+                        pct = issue.devProgress;
+                      } else {
+                        pct = getStageProgress(issue.boardStage);
+                      }
                       if (pct === null) return <span className="text-muted-foreground">—</span>;
                       const isDone = pct === 100;
                       return (

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { issueAnalytics, userActivity, projects } from "@/db/schema";
+import { issueAnalytics, userActivity, projects, issueProgress } from "@/db/schema";
 import { and, eq, gte, desc, inArray, sql, type SQL } from "drizzle-orm";
 import {
   CYCLE_BUCKETS,
@@ -81,11 +81,27 @@ export async function GET(request: NextRequest) {
       .from(issueAnalytics)
       .where(issueConditions.length > 0 ? and(...issueConditions) : undefined);
 
+    // ---- Fetch progress values (set via /dev, /test, /uat comment commands) ----
+    const progressRows = await db.select().from(issueProgress);
+    const progressByKey = new Map<string, { dev: number | null; qa: number | null }>();
+    for (const p of progressRows) {
+      const key = `${p.gitlabProjectId}:${p.issueIid}`;
+      const current = progressByKey.get(key) ?? { dev: null, qa: null };
+      if (p.stage === "dev") current.dev = p.progress;
+      else if (p.stage === "qa") current.qa = p.progress;
+      progressByKey.set(key, current);
+    }
+
     const issues: ReviewIssue[] = rows
       .map((r) => {
         // Normalize GitLab's "opened" to "open"
         const state = r.state === "closed" ? "closed" : "open";
         const board = parseBoardLabels(r.labels, state);
+        const progress =
+          progressByKey.get(`${r.gitlabProjectId}:${r.issueIid}`) ?? {
+            dev: null,
+            qa: null,
+          };
         return {
           id: r.id,
           projectId: r.projectId,
@@ -107,6 +123,8 @@ export async function GET(request: NextRequest) {
           timeToFirstResponseHours: r.timeToFirstResponseHours,
           commentCount: r.commentCount,
           uniqueCommenters: r.uniqueCommenters,
+          devProgress: progress.dev,
+          qaProgress: progress.qa,
           boardStage: board.boardStage,
           priority: board.priority,
           team: board.team,

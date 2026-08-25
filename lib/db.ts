@@ -78,6 +78,18 @@ function initSchema(db: Database.Database) {
       synced_at INTEGER DEFAULT (unixepoch())
     );
 
+    CREATE TABLE IF NOT EXISTS issue_progress (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id INTEGER NOT NULL,
+      gitlab_project_id INTEGER NOT NULL,
+      issue_iid INTEGER NOT NULL,
+      stage TEXT NOT NULL CHECK (stage IN ('dev', 'qa')),
+      progress INTEGER NOT NULL CHECK (progress >= 0 AND progress <= 100),
+      updated_by TEXT,
+      updated_at INTEGER DEFAULT (unixepoch()),
+      UNIQUE(gitlab_project_id, issue_iid, stage)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_sync_logs_project_id ON sync_logs(project_id);
     CREATE INDEX IF NOT EXISTS idx_sync_logs_created_at ON sync_logs(created_at);
     CREATE INDEX IF NOT EXISTS idx_user_activity_user ON user_activity(user_username);
@@ -86,6 +98,7 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_user_activity_project ON user_activity(project_id);
     CREATE INDEX IF NOT EXISTS idx_issue_analytics_author ON issue_analytics(author_username);
     CREATE INDEX IF NOT EXISTS idx_issue_analytics_project ON issue_analytics(gitlab_project_id);
+    CREATE INDEX IF NOT EXISTS idx_issue_progress_lookup ON issue_progress(gitlab_project_id, issue_iid);
   `);
 
   // Backfill: auto-generate secrets for any existing rows without one

@@ -17,6 +17,9 @@ export interface ReviewIssue {
   timeToFirstResponseHours: number | null;
   commentCount: number | null;
   uniqueCommenters: string | null;
+  // Progress set via GitLab comment commands (/dev 60, /test 30%, /uat 35)
+  devProgress: number | null;
+  qaProgress: number | null;
   // Kanban workflow mapping
   boardStage: string;
   priority: string | null;

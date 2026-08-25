@@ -80,6 +80,19 @@ export const issueAnalytics = sqliteTable("issue_analytics", {
   syncedAt: integer("synced_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 
+export const issueProgress = sqliteTable("issue_progress", {
+  id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  projectId: integer("project_id").notNull(),
+  gitlabProjectId: integer("gitlab_project_id").notNull(),
+  issueIid: integer("issue_iid").notNull(),
+  // Which phase the progress belongs to: "dev" (development) or "qa" (testing/UAT)
+  stage: text("stage").notNull(),
+  // 0-100 percentage, set via GitLab comment commands (/dev 60, /test 30%, /uat 35)
+  progress: integer("progress").notNull(),
+  updatedBy: text("updated_by"),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
 // Zod schemas for validation
 export const insertProjectSchema = createInsertSchema(projects, {
   name: z.string().min(1, "Name is required"),
@@ -117,6 +130,12 @@ export const selectUserActivitySchema = createSelectSchema(userActivity);
 export const insertIssueAnalyticsSchema = createInsertSchema(issueAnalytics);
 export const selectIssueAnalyticsSchema = createSelectSchema(issueAnalytics);
 
+export const insertIssueProgressSchema = createInsertSchema(issueProgress, {
+  stage: z.enum(["dev", "qa"]),
+  progress: z.number().int().min(0).max(100),
+});
+export const selectIssueProgressSchema = createSelectSchema(issueProgress);
+
 // Types
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
@@ -126,3 +145,5 @@ export type UserActivity = typeof userActivity.$inferSelect;
 export type NewUserActivity = typeof userActivity.$inferInsert;
 export type IssueAnalytics = typeof issueAnalytics.$inferSelect;
 export type NewIssueAnalytics = typeof issueAnalytics.$inferInsert;
+export type IssueProgress = typeof issueProgress.$inferSelect;
+export type NewIssueProgress = typeof issueProgress.$inferInsert;

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { projects, userActivity, issueAnalytics } from "@/db/schema";
+import { projects, userActivity, issueAnalytics, issueProgress } from "@/db/schema";
 import { createGitLabClient } from "@/lib/gitlab-api";
+import { parseProgressUpdate } from "@/lib/progress-parser";
 import { eq } from "drizzle-orm";
 
 export async function POST(request: NextRequest) {
@@ -25,6 +26,7 @@ export async function POST(request: NextRequest) {
       commitsFetched: 0,
       activitiesRecorded: 0,
       issueAnalyticsRecorded: 0,
+      progressUpdatesRecorded: 0,
     };
 
     // Build a map of GitLab project IDs we want to sync
@@ -123,12 +125,43 @@ export async function POST(request: NextRequest) {
               let firstResponseAt: Date | null = null;
               const commenters = new Set<string>();
 
+              // Latest progress command per stage from comments
+              // (/dev 60, /test 30%, /uat 35) — later notes win.
+              let devProgressEntry: { value: number; at: Date; by: string } | null = null;
+              let qaProgressEntry: { value: number; at: Date; by: string } | null = null;
+
               for (const note of nonSystemNotes) {
                 commenters.add(note.author.username);
 
                 // Check if this is the first response by someone other than author
                 if (!firstResponseAt && note.author.username !== issue.author.username) {
                   firstResponseAt = new Date(note.created_at);
+                }
+
+                // Parse progress commands (e.g. "/dev 60", "/uat 35%")
+                const progressCmds = parseProgressUpdate(note.body);
+                if (progressCmds.dev !== null || progressCmds.qa !== null) {
+                  const noteAt = new Date(note.created_at);
+                  if (
+                    progressCmds.dev !== null &&
+                    (!devProgressEntry || noteAt >= devProgressEntry.at)
+                  ) {
+                    devProgressEntry = {
+                      value: progressCmds.dev,
+                      at: noteAt,
+                      by: note.author.username,
+                    };
+                  }
+                  if (
+                    progressCmds.qa !== null &&
+                    (!qaProgressEntry || noteAt >= qaProgressEntry.at)
+                  ) {
+                    qaProgressEntry = {
+                      value: progressCmds.qa,
+                      at: noteAt,
+                      by: note.author.username,
+                    };
+                  }
                 }
 
                 // Add comment activity
@@ -179,6 +212,41 @@ export async function POST(request: NextRequest) {
                 commentCount: nonSystemNotes.length,
                 uniqueCommenters: Array.from(commenters).join(","),
               });
+
+              // Upsert progress values parsed from comment commands.
+              // issue_progress is NOT wiped by sync — it persists across runs,
+              // so only update rows when a command was actually found.
+              const progressEntries = [
+                { stage: "dev" as const, entry: devProgressEntry },
+                { stage: "qa" as const, entry: qaProgressEntry },
+              ];
+              for (const { stage, entry } of progressEntries) {
+                if (!entry) continue;
+                await db
+                  .insert(issueProgress)
+                  .values({
+                    projectId: config.id,
+                    gitlabProjectId: gitlabProject.id,
+                    issueIid: issue.iid,
+                    stage,
+                    progress: entry.value,
+                    updatedBy: entry.by,
+                    updatedAt: entry.at,
+                  })
+                  .onConflictDoUpdate({
+                    target: [
+                      issueProgress.gitlabProjectId,
+                      issueProgress.issueIid,
+                      issueProgress.stage,
+                    ],
+                    set: {
+                      progress: entry.value,
+                      updatedBy: entry.by,
+                      updatedAt: entry.at,
+                    },
+                  });
+                stats.progressUpdatesRecorded++;
+              }
             } catch (error) {
               console.error(`    Error fetching notes for issue ${issue.iid}:`, error);
             }

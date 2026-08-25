@@ -121,6 +121,20 @@ export function ReviewHub() {
   for (const p of review?.people || []) wipMap[p.username] = p.wipCount;
   const wipLimit = review ? WIP_LIMIT : 2;
 
+  // Average work progress across open issues that have progress set
+  // (values come from /dev, /test, /uat comment commands)
+  const avgOf = (values: Array<number | null | undefined>): number | null => {
+    const known = values.filter((v): v is number => typeof v === "number");
+    if (known.length === 0) return null;
+    return known.reduce((a, b) => a + b, 0) / known.length;
+  };
+  const avgDevProgress = avgOf(
+    issues.filter((i) => i.state === "open" && i.boardStage === "In Progress").map((i) => i.devProgress)
+  );
+  const avgQaProgress = avgOf(
+    issues.filter((i) => i.state === "open" && i.boardStage === "Testing/QA").map((i) => i.qaProgress)
+  );
+
   const fetchTeam = useCallback(async () => {
     setTeamLoading(true);
     try {
@@ -386,6 +400,8 @@ export function ReviewHub() {
           boardDistribution={review.boardDistribution}
           priorityBreakdown={review.priorityBreakdown}
           teamBreakdown={review.teamBreakdown}
+          avgDevProgress={avgDevProgress}
+          avgQaProgress={avgQaProgress}
         />
       )}
 

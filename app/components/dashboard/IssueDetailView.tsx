@@ -20,6 +20,8 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
+  Hammer,
+  FlaskConical,
 } from "lucide-react";
 
 interface IssueDetailViewProps {
@@ -225,6 +227,81 @@ export function IssueDetailView({
           })()}
         </CardContent>
       </Card>
+
+      {/* Work progress (set via GitLab comment commands) */}
+      {(() => {
+        const devRelevant =
+          issue.devProgress !== null ||
+          ["In Progress", "Peer Review", "Testing/QA", "Completed"].includes(issue.boardStage);
+        const qaRelevant =
+          issue.qaProgress !== null ||
+          ["Testing/QA", "Completed"].includes(issue.boardStage);
+        if (!devRelevant && !qaRelevant) return null;
+        return (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Hammer className="h-4 w-4" />
+                Work Progress
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {devRelevant && (
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="flex items-center gap-1.5 text-sm font-medium">
+                      <Hammer className="h-3.5 w-3.5 text-blue-500" />
+                      Development
+                    </span>
+                    <span
+                      className={`text-sm font-semibold ${
+                        issue.devProgress === 100 ? "text-green-600" : ""
+                      }`}
+                    >
+                      {issue.devProgress !== null ? `${issue.devProgress}%` : "Not set"}
+                    </span>
+                  </div>
+                  {issue.devProgress !== null && (
+                    <Progress
+                      value={issue.devProgress}
+                      className={`h-2 ${issue.devProgress === 100 ? "[&>div]:bg-green-600" : ""}`}
+                    />
+                  )}
+                </div>
+              )}
+              {qaRelevant && (
+                <div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="flex items-center gap-1.5 text-sm font-medium">
+                      <FlaskConical className="h-3.5 w-3.5 text-orange-500" />
+                      QA / Testing
+                    </span>
+                    <span
+                      className={`text-sm font-semibold ${
+                        issue.qaProgress === 100 ? "text-green-600" : ""
+                      }`}
+                    >
+                      {issue.qaProgress !== null ? `${issue.qaProgress}%` : "Not set"}
+                    </span>
+                  </div>
+                  {issue.qaProgress !== null && (
+                    <Progress
+                      value={issue.qaProgress}
+                      className={`h-2 ${issue.qaProgress === 100 ? "[&>div]:bg-green-600" : ""}`}
+                    />
+                  )}
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground pt-1 border-t border-border">
+                Updated via GitLab comments: developers comment{" "}
+                <code className="px-1 py-0.5 rounded bg-muted">/dev 60</code>, QA comments{" "}
+                <code className="px-1 py-0.5 rounded bg-muted">/test 30</code> or{" "}
+                <code className="px-1 py-0.5 rounded bg-muted">/uat 35%</code>, then sync.
+              </p>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* Key metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
