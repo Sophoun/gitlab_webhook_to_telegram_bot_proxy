@@ -93,6 +93,19 @@ export const issueProgress = sqliteTable("issue_progress", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 
+// Append-only log of every progress command ever parsed.
+// Enables per-person velocity ("progress delivered") and stall detection.
+export const issueProgressHistory = sqliteTable("issue_progress_history", {
+  id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  projectId: integer("project_id").notNull(),
+  gitlabProjectId: integer("gitlab_project_id").notNull(),
+  issueIid: integer("issue_iid").notNull(),
+  stage: text("stage").notNull(),
+  progress: integer("progress").notNull(),
+  updatedBy: text("updated_by").notNull().default(""),
+  occurredAt: integer("occurred_at", { mode: "timestamp" }).notNull(),
+});
+
 // Zod schemas for validation
 export const insertProjectSchema = createInsertSchema(projects, {
   name: z.string().min(1, "Name is required"),
@@ -136,6 +149,12 @@ export const insertIssueProgressSchema = createInsertSchema(issueProgress, {
 });
 export const selectIssueProgressSchema = createSelectSchema(issueProgress);
 
+export const insertIssueProgressHistorySchema = createInsertSchema(issueProgressHistory, {
+  stage: z.enum(["dev", "qa"]),
+  progress: z.number().int().min(0).max(100),
+});
+export const selectIssueProgressHistorySchema = createSelectSchema(issueProgressHistory);
+
 // Types
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
@@ -147,3 +166,5 @@ export type IssueAnalytics = typeof issueAnalytics.$inferSelect;
 export type NewIssueAnalytics = typeof issueAnalytics.$inferInsert;
 export type IssueProgress = typeof issueProgress.$inferSelect;
 export type NewIssueProgress = typeof issueProgress.$inferInsert;
+export type IssueProgressHistory = typeof issueProgressHistory.$inferSelect;
+export type NewIssueProgressHistory = typeof issueProgressHistory.$inferInsert;

@@ -28,6 +28,8 @@ interface PersonWeek {
   mrsMerged: number;
   commits: number;
   totalEvents: number;
+  /** Progress % added via /dev + /test + /uat commands in the period */
+  progressDelivered: number;
 }
 
 type PeriodType = "day" | "week" | "month";
@@ -205,13 +207,15 @@ export function ReviewHub() {
           Username: p.username,
           "Issues Created": p.issuesCreated,
           "Issues Closed": p.issuesClosed,
+          "Progress Delivered (%)": p.progressDelivered ?? 0,
           Comments: p.comments,
           "Total Events": p.totalEvents,
           WIP: wipMap[p.username] || 0,
         }))
       );
       teamSheet["!cols"] = [
-        { wch: 22 }, { wch: 18 }, { wch: 15 }, { wch: 14 }, { wch: 12 }, { wch: 13 }, { wch: 8 },
+        { wch: 22 }, { wch: 18 }, { wch: 15 }, { wch: 14 }, { wch: 20 }, { wch: 12 },
+        { wch: 13 }, { wch: 8 },
       ];
 
       // Sheet 2: Needs Attention

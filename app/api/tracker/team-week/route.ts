@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { userActivity, projects } from "@/db/schema";
+import { userActivity, projects, issueProgressHistory } from "@/db/schema";
 import { and, gte, lte, inArray, sql } from "drizzle-orm";
+import { computeProgressDelivered } from "@/lib/progress-parser";
 
 export async function GET(request: NextRequest) {
   try {
@@ -113,9 +114,44 @@ export async function GET(request: NextRequest) {
       (a, b) => b.totalEvents - a.totalEvents
     );
 
+    // ---- Progress delivered per person ----
+    // Full history is fetched so deltas are computed against prior values;
+    // crediting is limited to the selected period (see computeProgressDelivered).
+    const historyFilter =
+      mainProjectIds.length > 0
+        ? inArray(issueProgressHistory.gitlabProjectId, mainProjectIds)
+        : sql`0`;
+    const historyRows = await db
+      .select({
+        gitlabProjectId: issueProgressHistory.gitlabProjectId,
+        issueIid: issueProgressHistory.issueIid,
+        stage: issueProgressHistory.stage,
+        progress: issueProgressHistory.progress,
+        updatedBy: issueProgressHistory.updatedBy,
+        occurredAt: issueProgressHistory.occurredAt,
+      })
+      .from(issueProgressHistory)
+      .where(historyFilter);
+
+    const delivered = computeProgressDelivered(
+      historyRows.map((h) => ({ ...h, occurredAt: new Date(h.occurredAt) })),
+      from,
+      to
+    );
+
+    const peopleWithProgress = people.map((p) => {
+      const d = delivered.get(p.username);
+      return {
+        ...p,
+        devProgressDelivered: d?.dev ?? 0,
+        qaProgressDelivered: d?.qa ?? 0,
+        progressDelivered: (d?.dev ?? 0) + (d?.qa ?? 0),
+      };
+    });
+
     return NextResponse.json({
       range: { from: from.toISOString(), to: to.toISOString() },
-      people,
+      people: peopleWithProgress,
     });
   } catch (error) {
     console.error("Failed to fetch team week:", error);

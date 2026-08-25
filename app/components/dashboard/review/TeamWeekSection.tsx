@@ -18,6 +18,7 @@ import {
   CheckCircle2,
   MessageSquare,
   ExternalLink,
+  Gauge,
 } from "lucide-react";
 import { WORKFLOW_STAGES, type ReviewIssue } from "./types";
 
@@ -31,6 +32,8 @@ interface PersonWeek {
   mrsMerged: number;
   commits: number;
   totalEvents: number;
+  /** Progress % added via /dev + /test + /uat commands in the period */
+  progressDelivered: number;
 }
 
 interface ItemRef {
@@ -155,6 +158,11 @@ export function TeamWeekSection({
                   </TableHead>
                   <TableHead className="text-right">
                     <span className="inline-flex items-center gap-1">
+                      <Gauge className="h-3 w-3 text-orange-500" /> Progress
+                    </span>
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <span className="inline-flex items-center gap-1">
                       <MessageSquare className="h-3 w-3 text-purple-500" /> Comments
                     </span>
                   </TableHead>
@@ -210,13 +218,22 @@ export function TeamWeekSection({
                       <TableCell className="text-right font-medium text-green-600">
                         {p.issuesClosed}
                       </TableCell>
+                      <TableCell className="text-right font-medium">
+                        <span
+                          className={
+                            p.progressDelivered > 0 ? "text-orange-600" : "text-muted-foreground"
+                          }
+                        >
+                          +{p.progressDelivered}%
+                        </span>
+                      </TableCell>
                       <TableCell className="text-right">{p.comments}</TableCell>
                     </TableRow>
 
                     {/* Expanded detail row */}
                     {expanded === p.username && (
                       <TableRow>
-                        <TableCell colSpan={4} className="bg-muted/30 p-4">
+                        <TableCell colSpan={5} className="bg-muted/30 p-4">
                           {detailLoading ? (
                             <p className="text-sm text-muted-foreground py-2">Loading details...</p>
                           ) : !detail ? (

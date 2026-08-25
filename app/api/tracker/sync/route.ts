@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { projects, userActivity, issueAnalytics, issueProgress } from "@/db/schema";
+import {
+  projects,
+  userActivity,
+  issueAnalytics,
+  issueProgress,
+  issueProgressHistory,
+} from "@/db/schema";
 import { createGitLabClient } from "@/lib/gitlab-api";
-import { parseProgressUpdate } from "@/lib/progress-parser";
+import { parseProgressCommands, parseProgressUpdate } from "@/lib/progress-parser";
 import { eq } from "drizzle-orm";
 
 export async function POST(request: NextRequest) {
@@ -27,6 +33,7 @@ export async function POST(request: NextRequest) {
       activitiesRecorded: 0,
       issueAnalyticsRecorded: 0,
       progressUpdatesRecorded: 0,
+      progressHistoryRecorded: 0,
     };
 
     // Build a map of GitLab project IDs we want to sync
@@ -71,6 +78,7 @@ export async function POST(request: NextRequest) {
           // Collect all activities for batch insert
           const activitiesToInsert: Array<typeof userActivity.$inferInsert> = [];
           const issueAnalyticsToInsert: Array<typeof issueAnalytics.$inferInsert> = [];
+          const progressHistoryToInsert: Array<typeof issueProgressHistory.$inferInsert> = [];
 
           // Fetch issues
           const issues = await client.getIssues(gitlabProject.id, from_date);
@@ -142,6 +150,21 @@ export async function POST(request: NextRequest) {
                 const progressCmds = parseProgressUpdate(note.body);
                 if (progressCmds.dev !== null || progressCmds.qa !== null) {
                   const noteAt = new Date(note.created_at);
+
+                  // Log every command occurrence to the append-only history
+                  // (deduplicated by unique index across repeated syncs)
+                  for (const cmd of parseProgressCommands(note.body)) {
+                    progressHistoryToInsert.push({
+                      projectId: config.id,
+                      gitlabProjectId: gitlabProject.id,
+                      issueIid: issue.iid,
+                      stage: cmd.stage,
+                      progress: cmd.value,
+                      updatedBy: note.author.username || "",
+                      occurredAt: noteAt,
+                    });
+                  }
+
                   if (
                     progressCmds.dev !== null &&
                     (!devProgressEntry || noteAt >= devProgressEntry.at)
@@ -376,6 +399,19 @@ export async function POST(request: NextRequest) {
             }
             stats.issueAnalyticsRecorded += issueAnalyticsToInsert.length;
             console.log(`    Inserted ${issueAnalyticsToInsert.length} issue analytics`);
+          }
+
+          // Batch insert progress history (append-only, dedup via unique index)
+          if (progressHistoryToInsert.length > 0) {
+            const BATCH_SIZE = 100;
+            for (let i = 0; i < progressHistoryToInsert.length; i += BATCH_SIZE) {
+              const batch = progressHistoryToInsert.slice(i, i + BATCH_SIZE);
+              await db.insert(issueProgressHistory).values(batch).onConflictDoNothing();
+            }
+            stats.progressHistoryRecorded += progressHistoryToInsert.length;
+            console.log(
+              `    Recorded ${progressHistoryToInsert.length} progress history entries`
+            );
           }
         }
 

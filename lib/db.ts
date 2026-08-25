@@ -90,6 +90,17 @@ function initSchema(db: Database.Database) {
       UNIQUE(gitlab_project_id, issue_iid, stage)
     );
 
+    CREATE TABLE IF NOT EXISTS issue_progress_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id INTEGER NOT NULL,
+      gitlab_project_id INTEGER NOT NULL,
+      issue_iid INTEGER NOT NULL,
+      stage TEXT NOT NULL CHECK (stage IN ('dev', 'qa')),
+      progress INTEGER NOT NULL CHECK (progress >= 0 AND progress <= 100),
+      updated_by TEXT NOT NULL DEFAULT '',
+      occurred_at INTEGER NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_sync_logs_project_id ON sync_logs(project_id);
     CREATE INDEX IF NOT EXISTS idx_sync_logs_created_at ON sync_logs(created_at);
     CREATE INDEX IF NOT EXISTS idx_user_activity_user ON user_activity(user_username);
@@ -99,6 +110,10 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_issue_analytics_author ON issue_analytics(author_username);
     CREATE INDEX IF NOT EXISTS idx_issue_analytics_project ON issue_analytics(gitlab_project_id);
     CREATE INDEX IF NOT EXISTS idx_issue_progress_lookup ON issue_progress(gitlab_project_id, issue_iid);
+    -- Dedup: repeated syncs re-parse the same notes; this keeps history append-only
+    -- without duplicates. updated_by is NOT NULL so the index is deterministic.
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_issue_progress_history_dedup
+      ON issue_progress_history(gitlab_project_id, issue_iid, stage, progress, updated_by, occurred_at);
   `);
 
   // Backfill: auto-generate secrets for any existing rows without one

@@ -54,3 +54,61 @@ export function parseProgressUpdate(
   }
   return { dev, qa };
 }
+
+// ---------------------------------------------------------------------------
+// Progress velocity
+// ---------------------------------------------------------------------------
+
+export interface ProgressHistoryEntry {
+  gitlabProjectId: number;
+  issueIid: number;
+  stage: string;
+  progress: number;
+  updatedBy: string;
+  occurredAt: Date;
+}
+
+/**
+ * Compute per-person "progress delivered" from an append-only history of
+ * progress commands.
+ *
+ * Entries are walked in time order per (project, issue, stage); each command's
+ * author is credited with the positive delta over the previous value.
+ * Corrections that lower a value count as 0 (no negative credit).
+ *
+ * Only entries whose occurredAt falls within [from, to] are credited, but the
+ * full history must be passed in so deltas are computed against prior values.
+ * Entries may arrive in any order — they are sorted internally.
+ */
+export function computeProgressDelivered(
+  entries: ProgressHistoryEntry[],
+  from: Date,
+  to: Date
+): Map<string, { dev: number; qa: number }> {
+  const sorted = [...entries].sort(
+    (a, b) =>
+      a.gitlabProjectId - b.gitlabProjectId ||
+      a.issueIid - b.issueIid ||
+      a.stage.localeCompare(b.stage) ||
+      a.occurredAt.getTime() - b.occurredAt.getTime()
+  );
+
+  const lastValue = new Map<string, number>();
+  const delivered = new Map<string, { dev: number; qa: number }>();
+
+  for (const h of sorted) {
+    if (h.stage !== "dev" && h.stage !== "qa") continue;
+    const key = `${h.gitlabProjectId}:${h.issueIid}:${h.stage}`;
+    const prev = lastValue.get(key) ?? 0;
+    const delta = Math.max(0, h.progress - prev);
+    lastValue.set(key, h.progress);
+
+    if (delta > 0 && h.updatedBy && h.occurredAt >= from && h.occurredAt <= to) {
+      const d = delivered.get(h.updatedBy) ?? { dev: 0, qa: 0 };
+      d[h.stage] += delta;
+      delivered.set(h.updatedBy, d);
+    }
+  }
+
+  return delivered;
+}
