@@ -40,8 +40,52 @@ function initSchema(db: Database.Database) {
       created_at INTEGER DEFAULT (unixepoch())
     );
 
+    CREATE TABLE IF NOT EXISTS user_activity (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id INTEGER NOT NULL,
+      project_name TEXT NOT NULL,
+      gitlab_project_id INTEGER NOT NULL,
+      user_name TEXT NOT NULL,
+      user_username TEXT NOT NULL,
+      activity_type TEXT NOT NULL,
+      item_iid INTEGER NOT NULL,
+      item_title TEXT,
+      item_url TEXT,
+      occurred_at INTEGER NOT NULL,
+      synced_at INTEGER DEFAULT (unixepoch()),
+      labels TEXT,
+      state TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS issue_analytics (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id INTEGER NOT NULL,
+      gitlab_project_id INTEGER NOT NULL,
+      issue_iid INTEGER NOT NULL,
+      issue_title TEXT,
+      issue_url TEXT,
+      author_username TEXT NOT NULL,
+      author_name TEXT NOT NULL,
+      state TEXT NOT NULL,
+      labels TEXT,
+      created_at INTEGER NOT NULL,
+      closed_at INTEGER,
+      first_response_at INTEGER,
+      time_to_close_hours INTEGER,
+      time_to_first_response_hours INTEGER,
+      comment_count INTEGER DEFAULT 0,
+      unique_commenters TEXT,
+      synced_at INTEGER DEFAULT (unixepoch())
+    );
+
     CREATE INDEX IF NOT EXISTS idx_sync_logs_project_id ON sync_logs(project_id);
     CREATE INDEX IF NOT EXISTS idx_sync_logs_created_at ON sync_logs(created_at);
+    CREATE INDEX IF NOT EXISTS idx_user_activity_user ON user_activity(user_username);
+    CREATE INDEX IF NOT EXISTS idx_user_activity_type ON user_activity(activity_type);
+    CREATE INDEX IF NOT EXISTS idx_user_activity_occurred ON user_activity(occurred_at);
+    CREATE INDEX IF NOT EXISTS idx_user_activity_project ON user_activity(project_id);
+    CREATE INDEX IF NOT EXISTS idx_issue_analytics_author ON issue_analytics(author_username);
+    CREATE INDEX IF NOT EXISTS idx_issue_analytics_project ON issue_analytics(gitlab_project_id);
   `);
 
   // Backfill: auto-generate secrets for any existing rows without one

@@ -3,15 +3,14 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { StatsCards } from "./components/dashboard/StatsCards";
-import { ProjectsTable } from "./components/dashboard/ProjectsTable";
-import { ActivityLog } from "./components/dashboard/ActivityLog";
-import { Sidebar } from "./components/dashboard/Sidebar";
-import { ProjectFormDialog } from "./components/dashboard/ProjectFormDialog";
-import { WebhookUrlsDialog } from "./components/dashboard/WebhookUrlsDialog";
-import { Project, SyncLog, ProjectFormData } from "./types";
+import { Sidebar } from "../components/dashboard/Sidebar";
+import { StatsCards } from "../components/dashboard/StatsCards";
+import { ProjectsTable } from "../components/dashboard/ProjectsTable";
+import { ProjectFormDialog } from "../components/dashboard/ProjectFormDialog";
+import { WebhookUrlsDialog } from "../components/dashboard/WebhookUrlsDialog";
+import { Project, SyncLog, ProjectFormData } from "../types";
 
-export default function Dashboard() {
+export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [logs, setLogs] = useState<SyncLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -120,24 +119,23 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-lg text-muted-foreground">Loading...</div>
-      </div>
+      <Sidebar>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-lg text-muted-foreground">Loading...</div>
+        </div>
+      </Sidebar>
     );
   }
 
   return (
     <Sidebar>
       <div className="p-6">
-        {/* Header */}
-        <div className="mb-8">
+        <div className="mb-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">
-                Dashboard
-              </h1>
+              <h1 className="text-3xl font-bold tracking-tight">Projects</h1>
               <p className="text-muted-foreground mt-1">
-                Manage project mappings and webhook configurations
+                Configure your GitLab projects and Telegram settings
               </p>
             </div>
             <Button onClick={handleAdd}>
@@ -152,9 +150,9 @@ export default function Dashboard() {
         {/* Projects Table */}
         <Card className="mt-6">
           <CardHeader>
-            <CardTitle>Projects</CardTitle>
+            <CardTitle>All Projects</CardTitle>
             <CardDescription>
-              Configure your GitLab projects and Telegram settings
+              Manage your project configurations
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -165,19 +163,6 @@ export default function Dashboard() {
               onShowUrls={fetchWebhookUrls}
               onAdd={handleAdd}
             />
-          </CardContent>
-        </Card>
-
-        {/* Recent Activity */}
-        <Card className="mt-6">
-          <CardHeader>
-            <CardTitle>Recent Activity</CardTitle>
-            <CardDescription>
-              Latest sync events and status updates
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ActivityLog logs={logs} />
           </CardContent>
         </Card>
       </div>

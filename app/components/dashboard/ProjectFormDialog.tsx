@@ -33,9 +33,9 @@ function getInitialForm(project: Project | null): ProjectFormData {
       telegram_chat_id: project.telegramChatId,
       ignore_users: project.ignoreUsers || "",
       webhook_secret: project.webhookSecret,
-      labels_todo: project.labelsTodo,
-      labels_in_progress: project.labelsInProgress,
-      labels_integrated: project.labelsIntegrated,
+      labels_todo: project.labelsTodo || "Backlog, Refinement, Ready for Dev",
+      labels_in_progress: project.labelsInProgress || "In Progress, Peer Review, Testing/QA",
+      labels_integrated: project.labelsIntegrated || "Completed, Closed",
       skip_ignored_users: project.skipIgnoredUsers ?? false,
       skip_description_only_updates: project.skipDescriptionOnlyUpdates ?? false,
     };

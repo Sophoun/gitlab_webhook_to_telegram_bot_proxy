@@ -33,6 +33,53 @@ export const syncLogs = sqliteTable("sync_logs", {
   createdAt: integer("created_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 
+export const userActivity = sqliteTable("user_activity", {
+  id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  projectId: integer("project_id").notNull(),
+  projectName: text("project_name").notNull(),
+  gitlabProjectId: integer("gitlab_project_id").notNull(),
+  userName: text("user_name").notNull(),
+  userUsername: text("user_username").notNull(),
+  activityType: text("activity_type").notNull(),
+  itemIid: integer("item_iid").notNull(),
+  itemTitle: text("item_title"),
+  itemUrl: text("item_url"),
+  occurredAt: integer("occurred_at", { mode: "timestamp" }).notNull(),
+  syncedAt: integer("synced_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+  labels: text("labels"),
+  state: text("state"),
+});
+
+export const issueAnalytics = sqliteTable("issue_analytics", {
+  id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  projectId: integer("project_id").notNull(),
+  gitlabProjectId: integer("gitlab_project_id").notNull(),
+  issueIid: integer("issue_iid").notNull(),
+  issueTitle: text("issue_title"),
+  issueUrl: text("issue_url"),
+  
+  // Issue metadata
+  authorUsername: text("author_username").notNull(),
+  authorName: text("author_name").notNull(),
+  state: text("state").notNull(),
+  labels: text("labels"),
+  
+  // Timing data
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  closedAt: integer("closed_at", { mode: "timestamp" }),
+  firstResponseAt: integer("first_response_at", { mode: "timestamp" }),
+  
+  // Computed metrics (in hours)
+  timeToCloseHours: integer("time_to_close_hours"),
+  timeToFirstResponseHours: integer("time_to_first_response_hours"),
+  
+  // Collaboration
+  commentCount: integer("comment_count").default(0),
+  uniqueCommenters: text("unique_commenters"), // comma-separated usernames
+  
+  syncedAt: integer("synced_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
 // Zod schemas for validation
 export const insertProjectSchema = createInsertSchema(projects, {
   name: z.string().min(1, "Name is required"),
@@ -51,8 +98,31 @@ export const insertSyncLogSchema = createInsertSchema(syncLogs, {
 
 export const selectSyncLogSchema = createSelectSchema(syncLogs);
 
+export const insertUserActivitySchema = createInsertSchema(userActivity, {
+  activityType: z.enum([
+    "issue_created",
+    "issue_closed",
+    "issue_reopened",
+    "issue_comment",
+    "mr_created",
+    "mr_merged",
+    "mr_closed",
+    "mr_comment",
+    "commit",
+  ]),
+});
+
+export const selectUserActivitySchema = createSelectSchema(userActivity);
+
+export const insertIssueAnalyticsSchema = createInsertSchema(issueAnalytics);
+export const selectIssueAnalyticsSchema = createSelectSchema(issueAnalytics);
+
 // Types
 export type Project = typeof projects.$inferSelect;
 export type NewProject = typeof projects.$inferInsert;
 export type SyncLog = typeof syncLogs.$inferSelect;
 export type NewSyncLog = typeof syncLogs.$inferInsert;
+export type UserActivity = typeof userActivity.$inferSelect;
+export type NewUserActivity = typeof userActivity.$inferInsert;
+export type IssueAnalytics = typeof issueAnalytics.$inferSelect;
+export type NewIssueAnalytics = typeof issueAnalytics.$inferInsert;
