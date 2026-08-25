@@ -68,6 +68,7 @@ function initSchema(db: Database.Database) {
       author_name TEXT NOT NULL,
       state TEXT NOT NULL,
       labels TEXT,
+      assignee_usernames TEXT,
       created_at INTEGER NOT NULL,
       closed_at INTEGER,
       first_response_at INTEGER,
@@ -154,6 +155,13 @@ function initSchema(db: Database.Database) {
   }
   if (!existing.has("skip_description_only_updates")) {
     db.exec("ALTER TABLE projects ADD COLUMN skip_description_only_updates INTEGER DEFAULT 0");
+  }
+
+  // Migration: issue_analytics.assignee_usernames (tasks "under their name")
+  const analyticsCols = db.pragma("table_info(issue_analytics)") as Array<{ name: string }>;
+  const analyticsExisting = new Set(analyticsCols.map((c) => c.name));
+  if (!analyticsExisting.has("assignee_usernames")) {
+    db.exec("ALTER TABLE issue_analytics ADD COLUMN assignee_usernames TEXT");
   }
 }
 

@@ -26,6 +26,10 @@ export interface GitLabIssue {
     username: string;
   }> | null;
   labels: string[];
+  assignees?: Array<{
+    username: string;
+    name: string;
+  }>;
   web_url: string;
   description?: string;
 }

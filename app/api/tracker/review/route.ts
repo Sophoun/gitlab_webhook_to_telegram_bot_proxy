@@ -184,6 +184,7 @@ export async function GET(request: NextRequest) {
           issueUrl: r.issueUrl,
           authorUsername: r.authorUsername,
           authorName: r.authorName,
+          assigneeUsernames: r.assigneeUsernames ?? null,
           state,
           labels: r.labels,
           createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : "",

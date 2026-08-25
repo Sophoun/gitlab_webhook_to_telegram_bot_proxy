@@ -120,6 +120,33 @@ export async function GET(request: NextRequest) {
       (a, b) => b.totalEvents - a.totalEvents
     );
 
+    // ---- Include EVERYONE ever seen in this scope, even with no activity ----
+    // Members without events in the period still appear (zero-filled) so the
+    // roster is complete for performance review.
+    const allUsers = await db
+      .selectDistinct({
+        username: userActivity.userUsername,
+        name: userActivity.userName,
+      })
+      .from(userActivity)
+      .where(mainFilter);
+
+    const known = new Set(people.map((p) => p.username));
+    const inactive = allUsers
+      .filter((u) => u.username && !known.has(u.username))
+      .map((u) => ({
+        username: u.username,
+        name: u.name,
+        issuesCreated: 0,
+        issuesClosed: 0,
+        comments: 0,
+        mrsCreated: 0,
+        mrsMerged: 0,
+        commits: 0,
+        totalEvents: 0,
+      }));
+    const everyone = [...people, ...inactive];
+
     // ---- Progress delivered per person ----
     // Full history is fetched so deltas are computed against prior values;
     // crediting is limited to the selected period (see computeProgressDelivered).
@@ -148,7 +175,7 @@ export async function GET(request: NextRequest) {
       to
     );
 
-    const peopleWithProgress = people.map((p) => {
+    const peopleWithProgress = everyone.map((p) => {
       const d = delivered.get(p.username);
       return {
         ...p,

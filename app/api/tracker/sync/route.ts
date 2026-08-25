@@ -279,6 +279,8 @@ export async function POST(request: NextRequest) {
                 authorName: issue.author.name,
                 state: issue.state,
                 labels: issue.labels.join(","),
+                assigneeUsernames:
+                  issue.assignees?.map((a) => a.username).join(",") || null,
                 createdAt: createdAt,
                 closedAt: closedAt,
                 firstResponseAt: firstResponseAt,

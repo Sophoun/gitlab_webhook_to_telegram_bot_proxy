@@ -119,9 +119,18 @@ export function TeamWeekSection({
     }
   };
 
-  // Person's currently OPEN issues grouped by board stage (workflow order)
+  // Person's currently OPEN issues grouped by board stage (workflow order).
+  // A task is "under their name" if they authored it OR are assigned to it.
   const getCurrentTasks = (username: string): Array<{ stage: string; items: ReviewIssue[] }> => {
-    const open = issues.filter((i) => i.authorUsername === username && i.state === "open");
+    const open = issues.filter(
+      (i) =>
+        i.state === "open" &&
+        (i.authorUsername === username ||
+          (i.assigneeUsernames || "")
+            .split(",")
+            .map((a) => a.trim())
+            .includes(username))
+    );
     return WORKFLOW_STAGES.map((stage) => ({
       stage,
       items: open.filter((i) => i.boardStage === stage),

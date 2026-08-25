@@ -207,22 +207,39 @@ export function ReviewHub() {
       const allIssues = review?.issues || [];
       const attention = categorizeAttention(allIssues);
 
-      // Sheet 1: Team Activity (selected period)
+      // Open tasks per person (authored OR assigned) — "tasks under their name"
+      const openTasksByUsername = new Map<string, number>();
+      for (const i of allIssues) {
+        if (i.state !== "open") continue;
+        const usernames = new Set<string>([i.authorUsername]);
+        for (const a of (i.assigneeUsernames || "").split(",")) {
+          const t = a.trim();
+          if (t) usernames.add(t);
+        }
+        for (const u of usernames) {
+          openTasksByUsername.set(u, (openTasksByUsername.get(u) || 0) + 1);
+        }
+      }
+
+      // Sheet 1: Team Activity (selected period) — full roster, including
+      // members with no activity in the period
       const teamSheet = XLSX.utils.json_to_sheet(
         people.map((p) => ({
           Name: p.name,
           Username: p.username,
+          Status: p.totalEvents > 0 ? "Active" : "No activity",
           "Issues Created": p.issuesCreated,
           "Issues Closed": p.issuesClosed,
           "Progress Delivered (%)": p.progressDelivered ?? 0,
           Comments: p.comments,
           "Total Events": p.totalEvents,
           WIP: wipMap[p.username] || 0,
+          "Open Tasks": openTasksByUsername.get(p.username) || 0,
         }))
       );
       teamSheet["!cols"] = [
-        { wch: 22 }, { wch: 18 }, { wch: 15 }, { wch: 14 }, { wch: 20 }, { wch: 12 },
-        { wch: 13 }, { wch: 8 },
+        { wch: 22 }, { wch: 18 }, { wch: 14 }, { wch: 15 }, { wch: 14 },
+        { wch: 20 }, { wch: 12 }, { wch: 13 }, { wch: 8 }, { wch: 12 },
       ];
 
       // Sheet 2: Needs Attention
@@ -234,6 +251,11 @@ export function ReviewHub() {
             IID: i.issueIid,
             Title: i.issueTitle || "",
             Author: i.authorName,
+            Assignees: (i.assigneeUsernames || "")
+              .split(",")
+              .map((a) => a.trim())
+              .filter(Boolean)
+              .join(", "),
             Stage: i.boardStage,
             "Dev Progress (%)": i.devProgress ?? "",
             "QA Progress (%)": i.qaProgress ?? "",
@@ -245,7 +267,7 @@ export function ReviewHub() {
       }
       const attentionSheet = XLSX.utils.json_to_sheet(attentionRows);
       attentionSheet["!cols"] = [
-        { wch: 24 }, { wch: 8 }, { wch: 50 }, { wch: 20 }, { wch: 14 },
+        { wch: 24 }, { wch: 8 }, { wch: 50 }, { wch: 20 }, { wch: 20 }, { wch: 14 },
         { wch: 15 }, { wch: 15 }, { wch: 10 }, { wch: 12 }, { wch: 40 },
       ];
 
@@ -256,6 +278,11 @@ export function ReviewHub() {
           Title: i.issueTitle || "",
           Project: i.projectName || "",
           Author: i.authorName,
+          Assignees: (i.assigneeUsernames || "")
+            .split(",")
+            .map((a) => a.trim())
+            .filter(Boolean)
+            .join(", "),
           Status: i.state,
           "Board Stage": i.boardStage,
           "Dev Progress (%)": i.devProgress ?? "",
@@ -272,9 +299,9 @@ export function ReviewHub() {
         }))
       );
       issueSheet["!cols"] = [
-        { wch: 8 }, { wch: 50 }, { wch: 16 }, { wch: 20 }, { wch: 9 }, { wch: 14 },
-        { wch: 15 }, { wch: 15 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 12 },
-        { wch: 12 }, { wch: 11 }, { wch: 17 }, { wch: 10 }, { wch: 40 },
+        { wch: 8 }, { wch: 50 }, { wch: 16 }, { wch: 20 }, { wch: 20 }, { wch: 9 },
+        { wch: 14 }, { wch: 15 }, { wch: 15 }, { wch: 10 }, { wch: 10 }, { wch: 12 },
+        { wch: 12 }, { wch: 12 }, { wch: 11 }, { wch: 17 }, { wch: 10 }, { wch: 40 },
       ];
 
       const wb = XLSX.utils.book_new();

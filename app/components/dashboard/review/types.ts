@@ -20,6 +20,8 @@ export interface ReviewIssue {
   issueUrl: string | null;
   authorUsername: string;
   authorName: string;
+  /** Comma-separated assignee usernames (tasks "under their name") */
+  assigneeUsernames: string | null;
   state: string;
   labels: string | null;
   createdAt: string;

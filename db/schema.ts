@@ -63,6 +63,8 @@ export const issueAnalytics = sqliteTable("issue_analytics", {
   authorName: text("author_name").notNull(),
   state: text("state").notNull(),
   labels: text("labels"),
+  // Comma-separated assignee usernames (tasks "under their name")
+  assigneeUsernames: text("assignee_usernames"),
   
   // Timing data
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
