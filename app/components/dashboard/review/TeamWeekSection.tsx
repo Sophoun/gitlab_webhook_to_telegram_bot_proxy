@@ -128,9 +128,15 @@ export function TeamWeekSection({
         {loading ? (
           <p className="text-center py-8 text-muted-foreground">Loading team activity...</p>
         ) : people.length === 0 ? (
-          <p className="text-center py-8 text-muted-foreground">
-            No activity this week. Try another week or click Sync.
-          </p>
+          <div className="text-center py-8 space-y-2">
+            <p className="text-muted-foreground">
+              No activity recorded for this period.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              The data reflects your last sync — click <strong>Sync</strong> to fetch
+              the latest from GitLab, or navigate to another day/week/month.
+            </p>
+          </div>
         ) : (
           <div className="border rounded-lg overflow-x-auto">
             <Table>
