@@ -52,6 +52,9 @@ interface TeamWeekSectionProps {
   subtitle?: string;
   wipMap?: Record<string, number>;
   wipLimit?: number;
+  /** Selected period bounds — required so the detail matches the table */
+  from: string;
+  to: string;
 }
 
 export function TeamWeekSection({
@@ -60,6 +63,8 @@ export function TeamWeekSection({
   subtitle,
   wipMap = {},
   wipLimit = 2,
+  from,
+  to,
 }: TeamWeekSectionProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [detail, setDetail] = useState<PersonReport | null>(null);
@@ -75,8 +80,10 @@ export function TeamWeekSection({
     setDetail(null);
     setDetailLoading(true);
     try {
-      // Reuse the person-report endpoint with the same week range
-      const res = await fetch(`/api/tracker/person-report?user=${username}`);
+      // Use the SAME period as the table so numbers always match
+      const res = await fetch(
+        `/api/tracker/person-report?user=${encodeURIComponent(username)}&from=${from}&to=${to}`
+      );
       const data = await res.json();
       if (!data.error) setDetail(data);
     } catch (error) {

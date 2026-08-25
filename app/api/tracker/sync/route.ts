@@ -93,14 +93,17 @@ export async function POST(request: NextRequest) {
               state: issue.state,
             });
 
-            // Issue closed activity
+            // Issue closed activity — credit the person who ACTUALLY closed it
+            // (closed_by), falling back to the author only when GitLab doesn't
+            // tell us who closed it.
             if (issue.closed_at) {
+              const closer = issue.closed_by?.[0] ?? issue.author;
               activitiesToInsert.push({
                 projectId: config.id,
                 projectName: config.name,
                 gitlabProjectId: gitlabProject.id,
-                userName: issue.author.name,
-                userUsername: issue.author.username,
+                userName: closer.name,
+                userUsername: closer.username,
                 activityType: "issue_closed",
                 itemIid: issue.iid,
                 itemTitle: issue.title,
@@ -203,12 +206,14 @@ export async function POST(request: NextRequest) {
             });
 
             if (mr.merged_at) {
+              // Credit the person who actually merged, not the MR author
+              const merger = mr.merged_by ?? mr.author;
               activitiesToInsert.push({
                 projectId: config.id,
                 projectName: config.name,
                 gitlabProjectId: gitlabProject.id,
-                userName: mr.author.name,
-                userUsername: mr.author.username,
+                userName: merger.name,
+                userUsername: merger.username,
                 activityType: "mr_merged",
                 itemIid: mr.iid,
                 itemTitle: mr.title,
@@ -242,13 +247,37 @@ export async function POST(request: NextRequest) {
           stats.commitsFetched += commits.length;
           console.log(`    Found ${commits.length} commits`);
 
+          // Build email/name -> GitLab username maps from project members so
+          // commits are attributed to real users instead of email prefixes.
+          const emailToUsername = new Map<string, string>();
+          const nameToUsername = new Map<string, string>();
+          try {
+            const members = await client.getProjectMembers(gitlabProject.id);
+            for (const m of members) {
+              if (m.email) emailToUsername.set(m.email.toLowerCase(), m.username);
+              if (m.public_email)
+                emailToUsername.set(m.public_email.toLowerCase(), m.username);
+              nameToUsername.set(m.name.toLowerCase(), m.username);
+            }
+          } catch (err) {
+            console.warn(
+              `    Could not fetch members for commit attribution: ${err instanceof Error ? err.message : err}`
+            );
+          }
+
           for (const commit of commits) {
+            const email = (commit.author_email || "").toLowerCase();
+            const resolvedUsername =
+              emailToUsername.get(email) ??
+              nameToUsername.get(commit.author_name.toLowerCase()) ??
+              commit.author_email.split("@")[0];
+
             activitiesToInsert.push({
               projectId: config.id,
               projectName: config.name,
               gitlabProjectId: gitlabProject.id,
               userName: commit.author_name,
-              userUsername: commit.author_email.split("@")[0],
+              userUsername: resolvedUsername,
               activityType: "commit",
               itemIid: 0,
               itemTitle: commit.title,

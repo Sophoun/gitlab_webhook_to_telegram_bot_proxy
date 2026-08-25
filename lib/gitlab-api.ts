@@ -20,6 +20,11 @@ export interface GitLabIssue {
     name: string;
     username: string;
   };
+  // Present on modern GitLab when the issue is closed
+  closed_by?: Array<{
+    name: string;
+    username: string;
+  }> | null;
   labels: string[];
   web_url: string;
   description?: string;
@@ -38,8 +43,20 @@ export interface GitLabMergeRequest {
     name: string;
     username: string;
   };
+  merged_by?: {
+    name: string;
+    username: string;
+  } | null;
   labels: string[];
   web_url: string;
+}
+
+export interface GitLabMember {
+  id: number;
+  username: string;
+  name: string;
+  email?: string | null;
+  public_email?: string | null;
 }
 
 export interface GitLabNote {
@@ -150,11 +167,40 @@ export class GitLabClient {
     return projects;
   }
 
+  /**
+   * Fetch all members (direct + inherited) of a project.
+   * Used to map commit author emails/names to real GitLab usernames.
+   */
+  async getProjectMembers(projectId: number): Promise<GitLabMember[]> {
+    const members: GitLabMember[] = [];
+    let page = 1;
+    const perPage = 100;
+
+    while (true) {
+      const url = `${this.apiBase}/projects/${projectId}/members/all?page=${page}&per_page=${perPage}`;
+      const response = await fetchWithRetry(url, { headers: this.getHeaders() });
+      const data = await response.json();
+
+      if (!Array.isArray(data) || data.length === 0) {
+        break;
+      }
+
+      members.push(...data);
+      await sleep(RATE_LIMIT_DELAY);
+
+      if (data.length < perPage) {
+        break;
+      }
+      page++;
+    }
+
+    return members;
+  }
+
   async getIssues(
     projectId: number,
     since?: string
-  ): Promise<GitLabIssue[]> {
-    const issues: GitLabIssue[] = [];
+  ): Promise<GitLabIssue[]> {    const issues: GitLabIssue[] = [];
     let page = 1;
     const perPage = 100;
 

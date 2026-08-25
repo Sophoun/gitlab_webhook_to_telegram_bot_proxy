@@ -155,13 +155,17 @@ export function ReviewHub() {
     fetchIssues();
   }, [fetchIssues]);
 
-  const handleSync = async () => {
+  const handleSync = async (gitlabProjectIds?: number[]) => {
     setSyncing(true);
     try {
       await fetch("/api/tracker/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify(
+          gitlabProjectIds && gitlabProjectIds.length > 0
+            ? { gitlab_project_ids: gitlabProjectIds }
+            : {}
+        ),
       });
       await Promise.all([fetchTeam(), fetchIssues()]);
     } catch (error) {
@@ -324,6 +328,8 @@ export function ReviewHub() {
         subtitle={`${rangeLabel(periodType, anchor)} · click a person to see what they worked on`}
         wipMap={wipMap}
         wipLimit={wipLimit}
+        from={fromIso}
+        to={toIso}
       />
 
       {/* Section 2: All issues */}
@@ -341,8 +347,8 @@ export function ReviewHub() {
       <SyncDialog
         open={syncDialogOpen}
         onOpenChange={setSyncDialogOpen}
-        onSync={async () => {
-          await handleSync();
+        onSync={async (gitlabProjectIds) => {
+          await handleSync(gitlabProjectIds);
         }}
         syncing={syncing}
       />
