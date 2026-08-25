@@ -13,7 +13,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ExternalLink, ArrowUpDown, ChevronLeft, ChevronRight } from "lucide-react";
-import { WORKFLOW_STAGES, type ReviewIssue } from "./types";
+import { WORKFLOW_STAGES, getStageProgress, type ReviewIssue } from "./types";
+import { Progress } from "@/components/ui/progress";
 
 interface IssuesTableProps {
   issues: ReviewIssue[];
@@ -212,6 +213,7 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
               <TableHead>Author</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Board Stage</TableHead>
+              <TableHead>Progress</TableHead>
               <TableHead>Priority</TableHead>
               <TableHead>
                 <SortHead field="createdAt">Created</SortHead>
@@ -232,7 +234,7 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
           <TableBody>
             {pageRows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={12} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={13} className="text-center py-8 text-muted-foreground">
                   No issues match the current filters
                 </TableCell>
               </TableRow>
@@ -289,6 +291,28 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
                     >
                       {issue.boardStage}
                     </Badge>
+                  </TableCell>
+                  <TableCell>
+                    {(() => {
+                      const pct = getStageProgress(issue.boardStage);
+                      if (pct === null) return <span className="text-muted-foreground">—</span>;
+                      const isDone = pct === 100;
+                      return (
+                        <div className="flex items-center gap-2 w-[90px]">
+                          <Progress
+                            value={pct}
+                            className={`h-1.5 ${isDone ? "[&>div]:bg-green-600" : ""}`}
+                          />
+                          <span
+                            className={`text-xs shrink-0 ${
+                              isDone ? "text-green-600 font-medium" : "text-muted-foreground"
+                            }`}
+                          >
+                            {pct}%
+                          </span>
+                        </div>
+                      );
+                    })()}
                   </TableCell>
                   <TableCell className="text-sm">
                     {issue.priority ? (

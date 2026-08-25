@@ -4,7 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { WORKFLOW_STAGES, type ReviewIssue } from "./review/types";
+import { WORKFLOW_STAGES, getStageProgress, type ReviewIssue } from "./review/types";
+import { Progress } from "@/components/ui/progress";
 import {
   ExternalLink,
   Clock,
@@ -149,7 +150,7 @@ export function IssueDetailView({
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center gap-1 overflow-x-auto pb-1">
+          <div className="flex items-center gap-1 overflow-x-auto pt-2 pb-1">
             {WORKFLOW_STAGES.map((stage, idx) => {
               const currentIdx = WORKFLOW_STAGES.indexOf(
                 issue.boardStage as (typeof WORKFLOW_STAGES)[number]
@@ -201,6 +202,27 @@ export function IssueDetailView({
               {issue.boardStage === "Testing/QA" && " — waiting on QA validation"}
             </p>
           )}
+
+          {/* Pipeline progression */}
+          {(() => {
+            const pct = getStageProgress(issue.boardStage);
+            if (pct === null) return null;
+            return (
+              <div className="flex items-center gap-3 mt-4">
+                <Progress
+                  value={pct}
+                  className={`h-2.5 flex-1 ${pct === 100 ? "[&>div]:bg-green-600" : ""}`}
+                />
+                <span
+                  className={`text-sm font-semibold shrink-0 ${
+                    pct === 100 ? "text-green-600" : ""
+                  }`}
+                >
+                  ~{pct}% through the workflow
+                </span>
+              </div>
+            );
+          })()}
         </CardContent>
       </Card>
 

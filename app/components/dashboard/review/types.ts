@@ -36,6 +36,27 @@ export const WORKFLOW_STAGES = [
   "Done",
 ] as const;
 
+/**
+ * Weighted pipeline progression per stage (%).
+ * Weights reflect that most effort happens during active development,
+ * so entering "In Progress" is ~45% of the journey, not 50%.
+ */
+export const STAGE_PROGRESS: Record<string, number> = {
+  Backlog: 5,
+  Refinement: 12,
+  "Ready for Dev": 20,
+  "In Progress": 45,
+  "Peer Review": 60,
+  "Testing/QA": 75,
+  Completed: 90,
+  Done: 100,
+};
+
+/** Returns 0-100 for known stages, null when the issue has no recognizable stage. */
+export function getStageProgress(boardStage: string): number | null {
+  return boardStage in STAGE_PROGRESS ? STAGE_PROGRESS[boardStage] : null;
+}
+
 export const WIP_LIMIT = 2;
 
 const TEAM_LABELS = ["Business", "Android", "iOS", "Backend", "DevOps"];
