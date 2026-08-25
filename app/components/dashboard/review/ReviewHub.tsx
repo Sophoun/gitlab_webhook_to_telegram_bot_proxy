@@ -330,6 +330,7 @@ export function ReviewHub() {
         wipLimit={wipLimit}
         from={fromIso}
         to={toIso}
+        issues={issues}
       />
 
       {/* Section 2: All issues */}

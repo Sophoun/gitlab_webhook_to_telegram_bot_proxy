@@ -19,6 +19,7 @@ import {
   MessageSquare,
   ExternalLink,
 } from "lucide-react";
+import { WORKFLOW_STAGES, type ReviewIssue } from "./types";
 
 interface PersonWeek {
   username: string;
@@ -55,7 +56,16 @@ interface TeamWeekSectionProps {
   /** Selected period bounds — required so the detail matches the table */
   from: string;
   to: string;
+  /** All issues (main project) — used to show each person's current tasks by stage */
+  issues: ReviewIssue[];
 }
+
+const STAGE_BADGE_CLASS: Record<string, string> = {
+  "In Progress": "border-blue-500/50 text-blue-600",
+  "Peer Review": "border-yellow-500/50 text-yellow-600",
+  "Testing/QA": "border-orange-500/50 text-orange-600",
+  Completed: "border-lime-600/50 text-lime-700",
+};
 
 export function TeamWeekSection({
   people,
@@ -65,6 +75,7 @@ export function TeamWeekSection({
   wipLimit = 2,
   from,
   to,
+  issues,
 }: TeamWeekSectionProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [detail, setDetail] = useState<PersonReport | null>(null);
@@ -92,6 +103,18 @@ export function TeamWeekSection({
       setDetailLoading(false);
     }
   };
+
+  // Person's currently OPEN issues grouped by board stage (workflow order)
+  const getCurrentTasks = (username: string): Array<{ stage: string; items: ReviewIssue[] }> => {
+    const open = issues.filter((i) => i.authorUsername === username && i.state === "open");
+    return WORKFLOW_STAGES.map((stage) => ({
+      stage,
+      items: open.filter((i) => i.boardStage === stage),
+    })).filter((g) => g.items.length > 0);
+  };
+
+  const getStageChips = (username: string) =>
+    getCurrentTasks(username).map((g) => ({ stage: g.stage, count: g.items.length }));
 
   return (
     <Card>
@@ -162,6 +185,18 @@ export function TeamWeekSection({
                             <div className="text-xs text-muted-foreground truncate">
                               @{p.username}
                             </div>
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {getStageChips(p.username).map((chip) => (
+                                <span
+                                  key={chip.stage}
+                                  className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium bg-background ${
+                                    STAGE_BADGE_CLASS[chip.stage] || "border-border text-muted-foreground"
+                                  }`}
+                                >
+                                  {chip.count}× {chip.stage}
+                                </span>
+                              ))}
+                            </div>
                           </div>
                         </div>
                       </TableCell>
@@ -183,27 +218,86 @@ export function TeamWeekSection({
                               No details available
                             </p>
                           ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="space-y-4">
+                              {/* Current open tasks by board stage */}
                               <div>
-                                <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
-                                  <CheckCircle2 className="h-3 w-3 text-green-600" />
-                                  Closed ({detail.closedIssues.length})
+                                <p className="text-xs font-medium text-muted-foreground mb-2">
+                                  Current tasks by stage
                                 </p>
-                                <DetailList items={detail.closedIssues} empty="Nothing closed" />
+                                {getCurrentTasks(p.username).length === 0 ? (
+                                  <p className="text-sm text-muted-foreground">
+                                    No open tasks right now
+                                  </p>
+                                ) : (
+                                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                                    {getCurrentTasks(p.username).map((group) => (
+                                      <div
+                                        key={group.stage}
+                                        className={`rounded-lg border p-2.5 ${
+                                          STAGE_BADGE_CLASS[group.stage] || "border-border"
+                                        }`}
+                                      >
+                                        <p className="text-xs font-semibold mb-1.5">
+                                          {group.stage} ({group.items.length})
+                                          {group.stage === "In Progress" &&
+                                            group.items.length > wipLimit && (
+                                              <Badge variant="destructive" className="ml-1.5 text-[10px]">
+                                                over WIP limit
+                                              </Badge>
+                                            )}
+                                        </p>
+                                        <div className="space-y-1">
+                                          {group.items.map((item) => (
+                                            <div
+                                              key={item.id}
+                                              className="flex items-center gap-1.5 text-sm min-w-0"
+                                            >
+                                              <span className="text-muted-foreground shrink-0 text-xs">
+                                                #{item.issueIid}
+                                              </span>
+                                              <span className="truncate">{item.issueTitle}</span>
+                                              {item.issueUrl && (
+                                                <a
+                                                  href={item.issueUrl}
+                                                  target="_blank"
+                                                  rel="noopener noreferrer"
+                                                  className="text-muted-foreground hover:text-foreground shrink-0"
+                                                >
+                                                  <ExternalLink className="h-3 w-3" />
+                                                </a>
+                                              )}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
-                              <div>
-                                <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
-                                  <CircleDot className="h-3 w-3 text-blue-500" />
-                                  Created ({detail.createdIssues.length})
-                                </p>
-                                <DetailList items={detail.createdIssues} empty="Nothing created" />
-                              </div>
-                              <div>
-                                <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
-                                  <MessageSquare className="h-3 w-3 text-purple-500" />
-                                  Commented on ({detail.commentedOn.length})
-                                </p>
-                                <DetailList items={detail.commentedOn} empty="No comments" />
+
+                              {/* This period's activity */}
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t">
+                                <div>
+                                  <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
+                                    <CheckCircle2 className="h-3 w-3 text-green-600" />
+                                    Closed ({detail.closedIssues.length})
+                                  </p>
+                                  <DetailList items={detail.closedIssues} empty="Nothing closed" />
+                                </div>
+                                <div>
+                                  <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
+                                    <CircleDot className="h-3 w-3 text-blue-500" />
+                                    Created ({detail.createdIssues.length})
+                                  </p>
+                                  <DetailList items={detail.createdIssues} empty="Nothing created" />
+                                </div>
+                                <div>
+                                  <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
+                                    <MessageSquare className="h-3 w-3 text-purple-500" />
+                                    Commented on ({detail.commentedOn.length})
+                                  </p>
+                                  <DetailList items={detail.commentedOn} empty="No comments" />
+                                </div>
                               </div>
                             </div>
                           )}
