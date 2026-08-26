@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { userActivity, issueProgressHistory } from "@/db/schema";
+import { userActivity, issueAnalytics, issueProgressHistory } from "@/db/schema";
 import { and, eq, gte, lte, sql } from "drizzle-orm";
 import { computeProgressDelivered } from "@/lib/progress-parser";
+import { parseBoardLabels, WORKFLOW_STAGES } from "@/app/components/dashboard/review/types";
 
 export async function GET(request: NextRequest) {
   try {
@@ -177,9 +178,56 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    // ---- Open tasks per person across ALL projects ----
+    // Every open issue in any synced repo where the person is author or
+    // assignee, counted total and per board stage. LIKE is only a prefilter;
+    // the exact comma-token check below prevents partial-username matches.
+    const openRows = await db
+      .select({
+        labels: issueAnalytics.labels,
+        authorUsername: issueAnalytics.authorUsername,
+        assigneeUsernames: issueAnalytics.assigneeUsernames,
+      })
+      .from(issueAnalytics)
+      // Raw GitLab state value — "opened", not "open"
+      .where(eq(issueAnalytics.state, "opened"));
+
+    const openTaskCount = new Map<string, number>();
+    const openTasksByStage = new Map<string, Record<string, number>>();
+    const credit = (username: string, stage: string) => {
+      if (!username) return;
+      openTaskCount.set(username, (openTaskCount.get(username) || 0) + 1);
+      const stages = openTasksByStage.get(username) || {};
+      stages[stage] = (stages[stage] || 0) + 1;
+      openTasksByStage.set(username, stages);
+    };
+    for (const r of openRows) {
+      const stage = parseBoardLabels(r.labels, "open").boardStage;
+      credit(r.authorUsername, stage);
+      for (const a of (r.assigneeUsernames || "").split(",")) {
+        const t = a.trim();
+        if (t && t !== r.authorUsername) credit(t, stage);
+      }
+    }
+
+    const peopleWithOpenTasks = peopleWithProgress.map((p) => {
+      const byStage = openTasksByStage.get(p.username) || {};
+      // Only keep stages that exist on the workflow so unknown labels
+      // ("No Stage") don't render as mystery chips
+      const stages: Record<string, number> = {};
+      for (const stage of WORKFLOW_STAGES) {
+        if (byStage[stage]) stages[stage] = byStage[stage];
+      }
+      return {
+        ...p,
+        openTaskCount: openTaskCount.get(p.username) || 0,
+        openTasksByStage: stages,
+      };
+    });
+
     return NextResponse.json({
       range: { from: from.toISOString(), to: to.toISOString() },
-      people: peopleWithProgress,
+      people: peopleWithOpenTasks,
     });
   } catch (error) {
     console.error("Failed to fetch team week:", error);

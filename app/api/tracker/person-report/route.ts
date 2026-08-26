@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { userActivity } from "@/db/schema";
-import { and, eq, gte, lte, asc } from "drizzle-orm";
+import { userActivity, issueAnalytics, gitlabRepos } from "@/db/schema";
+import { and, eq, gte, lte, asc, or, like } from "drizzle-orm";
+import { parseBoardLabels } from "@/app/components/dashboard/review/types";
 
 interface ActivityRow {
   activityType: string;
@@ -140,6 +141,58 @@ export async function GET(request: NextRequest) {
       events,
     }));
 
+    // ---- Open tasks across ALL projects ----
+    // Every open issue in any synced repo where the person is the author or
+    // an assignee — the full cross-project workload, not just the main board.
+    // LIKE is only a prefilter; assignees are comma-separated so an exact
+    // token check in JS prevents partial-username matches.
+    const repoNames = new Map(
+      (await db.select({ id: gitlabRepos.id, name: gitlabRepos.name }).from(gitlabRepos))
+        .map((r) => [r.id, r.name])
+    );
+    const openTaskRows = await db
+      .select({
+        gitlabProjectId: issueAnalytics.gitlabProjectId,
+        issueIid: issueAnalytics.issueIid,
+        issueTitle: issueAnalytics.issueTitle,
+        issueUrl: issueAnalytics.issueUrl,
+        labels: issueAnalytics.labels,
+        authorUsername: issueAnalytics.authorUsername,
+        assigneeUsernames: issueAnalytics.assigneeUsernames,
+      })
+      .from(issueAnalytics)
+      .where(
+        and(
+          // Raw GitLab state value — "opened", not "open"
+          eq(issueAnalytics.state, "opened"),
+          or(
+            eq(issueAnalytics.authorUsername, user.toLowerCase()),
+            like(issueAnalytics.assigneeUsernames, `%${user.toLowerCase()}%`)
+          )
+        )
+      );
+
+    const openTasks = openTaskRows
+      .filter((r) => {
+        if (r.authorUsername === user.toLowerCase()) return true;
+        const assignees = (r.assigneeUsernames || "").split(",").map((a) => a.trim());
+        return assignees.includes(user.toLowerCase());
+      })
+      .map((r) => ({
+        gitlabProjectId: r.gitlabProjectId,
+        issueIid: r.issueIid,
+        issueTitle: r.issueTitle,
+        issueUrl: r.issueUrl,
+        projectName: repoNames.get(r.gitlabProjectId) ?? String(r.gitlabProjectId),
+        boardStage: parseBoardLabels(r.labels, "open").boardStage,
+        isAuthor: r.authorUsername === user.toLowerCase(),
+        isAssignee: (r.assigneeUsernames || "")
+          .split(",")
+          .map((a) => a.trim())
+          .includes(user.toLowerCase()),
+      }))
+      .sort((a, b) => a.issueIid - b.issueIid);
+
     return NextResponse.json({
       user: { username: user, name: displayName },
       range: { from: from.toISOString(), to: to.toISOString() },
@@ -151,6 +204,7 @@ export async function GET(request: NextRequest) {
       createdMrs: byType("mr_created"),
       mergedMrs: byType("mr_merged"),
       commits: byType("commit"),
+      openTasks,
       dailyActivity,
     });
   } catch (error) {

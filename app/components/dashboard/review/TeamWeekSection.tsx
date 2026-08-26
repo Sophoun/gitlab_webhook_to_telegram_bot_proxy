@@ -16,6 +16,7 @@ import {
   ChevronRight,
   CircleDot,
   CheckCircle2,
+  ListTodo,
   MessageSquare,
   ExternalLink,
   Gauge,
@@ -23,7 +24,7 @@ import {
   GitMerge,
   Code2,
 } from "lucide-react";
-import { WORKFLOW_STAGES, type ReviewIssue } from "./types";
+import { WORKFLOW_STAGES } from "./types";
 
 interface PersonWeek {
   username: string;
@@ -36,6 +37,10 @@ interface PersonWeek {
   totalEvents: number;
   /** Progress % added via /dev + /test + /uat commands in the period */
   progressDelivered: number;
+  /** Open issues authored or assigned, across ALL synced repos */
+  openTaskCount: number;
+  /** Open task count per board stage (workflow stages only) */
+  openTasksByStage: Record<string, number>;
 }
 
 interface ItemRef {
@@ -45,11 +50,23 @@ interface ItemRef {
   projectName: string;
 }
 
+interface OpenTask {
+  gitlabProjectId: number;
+  issueIid: number;
+  issueTitle: string | null;
+  issueUrl: string | null;
+  projectName: string;
+  boardStage: string;
+  isAuthor: boolean;
+  isAssignee: boolean;
+}
+
 interface PersonReport {
   closedIssues: ItemRef[];
   createdIssues: ItemRef[];
   commentedOn: ItemRef[];
   mergedMrs: ItemRef[];
+  openTasks: OpenTask[];
 }
 
 interface TeamWeekSectionProps {
@@ -61,8 +78,6 @@ interface TeamWeekSectionProps {
   /** Selected period bounds — required so the detail matches the table */
   from: string;
   to: string;
-  /** All issues (main project) — used to show each person's current tasks by stage */
-  issues: ReviewIssue[];
   /** GitLab repo id when the dashboard is scoped to a specific repo */
   repo?: string | null;
 }
@@ -82,7 +97,6 @@ export function TeamWeekSection({
   wipLimit = 2,
   from,
   to,
-  issues,
   repo = null,
 }: TeamWeekSectionProps) {
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -113,26 +127,20 @@ export function TeamWeekSection({
     }
   };
 
-  // Person's currently OPEN issues grouped by board stage (workflow order).
-  // A task is "under their name" if they authored it OR are assigned to it.
-  const getCurrentTasks = (username: string): Array<{ stage: string; items: ReviewIssue[] }> => {
-    const open = issues.filter(
-      (i) =>
-        i.state === "open" &&
-        (i.authorUsername === username ||
-          (i.assigneeUsernames || "")
-            .split(",")
-            .map((a) => a.trim())
-            .includes(username))
-    );
-    return WORKFLOW_STAGES.map((stage) => ({
+  // Stage chips under the person's name — cross-project open tasks by stage
+  const getStageChips = (p: PersonWeek) =>
+    WORKFLOW_STAGES.filter((stage) => p.openTasksByStage[stage]).map((stage) => ({
       stage,
-      items: open.filter((i) => i.boardStage === stage),
-    })).filter((g) => g.items.length > 0);
-  };
+      count: p.openTasksByStage[stage],
+    }));
 
-  const getStageChips = (username: string) =>
-    getCurrentTasks(username).map((g) => ({ stage: g.stage, count: g.items.length }));
+  // Expanded detail: the person's open tasks (all projects) grouped by stage,
+  // in workflow order
+  const getDetailTaskGroups = (): Array<{ stage: string; items: OpenTask[] }> =>
+    WORKFLOW_STAGES.map((stage) => ({
+      stage,
+      items: (detail?.openTasks || []).filter((t) => t.boardStage === stage),
+    })).filter((g) => g.items.length > 0);
 
   return (
     <Card>
@@ -168,12 +176,7 @@ export function TeamWeekSection({
                   </TableHead>
                   <TableHead className="text-right">
                     <span className="inline-flex items-center gap-1">
-                      <CircleDot className="h-3 w-3 text-blue-500" /> Created
-                    </span>
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <span className="inline-flex items-center gap-1">
-                      <CheckCircle2 className="h-3 w-3 text-green-600" /> Closed
+                      <ListTodo className="h-3 w-3 text-blue-500" /> Open Tasks
                     </span>
                   </TableHead>
                   <TableHead className="text-right">
@@ -225,7 +228,7 @@ export function TeamWeekSection({
                               @{p.username}
                             </div>
                             <div className="flex flex-wrap gap-1 mt-1">
-                              {getStageChips(p.username).map((chip) => (
+                              {getStageChips(p).map((chip) => (
                                 <span
                                   key={chip.stage}
                                   className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium bg-background ${
@@ -242,9 +245,15 @@ export function TeamWeekSection({
                       <TableCell>
                         <ContributionMixBar person={p} />
                       </TableCell>
-                      <TableCell className="text-right font-medium">{p.issuesCreated}</TableCell>
-                      <TableCell className="text-right font-medium text-green-600">
-                        {p.issuesClosed}
+                      <TableCell className="text-right font-medium">
+                        <span
+                          className={
+                            p.openTaskCount > 0 ? "text-blue-600" : "text-muted-foreground"
+                          }
+                          title="Open issues authored or assigned to this person, across all repos"
+                        >
+                          {p.openTaskCount}
+                        </span>
                       </TableCell>
                       <TableCell className="text-right font-medium">
                         <span
@@ -266,7 +275,7 @@ export function TeamWeekSection({
                     {/* Expanded detail row */}
                     {expanded === p.username && (
                       <TableRow>
-                        <TableCell colSpan={7} className="bg-muted/30 p-4">
+                        <TableCell colSpan={6} className="bg-muted/30 p-4">
                           {detailLoading ? (
                             <p className="text-sm text-muted-foreground py-2">Loading details...</p>
                           ) : !detail ? (
@@ -275,18 +284,18 @@ export function TeamWeekSection({
                             </p>
                           ) : (
                             <div className="space-y-4">
-                              {/* Current open tasks by board stage */}
+                              {/* Open tasks across ALL projects, grouped by stage */}
                               <div>
                                 <p className="text-xs font-medium text-muted-foreground mb-2">
-                                  Current tasks by stage
+                                  Open tasks across all projects
                                 </p>
-                                {getCurrentTasks(p.username).length === 0 ? (
+                                {getDetailTaskGroups().length === 0 ? (
                                   <p className="text-sm text-muted-foreground">
                                     No open tasks right now
                                   </p>
                                 ) : (
                                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                                    {getCurrentTasks(p.username).map((group) => (
+                                    {getDetailTaskGroups().map((group) => (
                                       <div
                                         key={group.stage}
                                         className={`rounded-lg border p-2.5 ${
@@ -295,23 +304,22 @@ export function TeamWeekSection({
                                       >
                                         <p className="text-xs font-semibold mb-1.5">
                                           {group.stage} ({group.items.length})
-                                          {group.stage === "In Progress" &&
-                                            group.items.length > wipLimit && (
-                                              <Badge variant="destructive" className="ml-1.5 text-[10px]">
-                                                over WIP limit
-                                              </Badge>
-                                            )}
                                         </p>
                                         <div className="space-y-1">
                                           {group.items.map((item) => (
                                             <div
-                                              key={item.id}
+                                              key={`${item.gitlabProjectId}-${item.issueIid}`}
                                               className="flex items-center gap-1.5 text-sm min-w-0"
                                             >
                                               <span className="text-muted-foreground shrink-0 text-xs">
                                                 #{item.issueIid}
                                               </span>
                                               <span className="truncate">{item.issueTitle}</span>
+                                              {item.projectName && (
+                                                <span className="text-[10px] text-muted-foreground shrink-0 truncate max-w-[100px]">
+                                                  {item.projectName}
+                                                </span>
+                                              )}
                                               {item.issueUrl && (
                                                 <a
                                                   href={item.issueUrl}

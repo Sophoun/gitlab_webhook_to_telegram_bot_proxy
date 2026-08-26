@@ -29,6 +29,10 @@ interface PersonWeek {
   totalEvents: number;
   /** Progress % added via /dev + /test + /uat commands in the period */
   progressDelivered: number;
+  /** Open issues authored or assigned, across ALL synced repos */
+  openTaskCount: number;
+  /** Open task count per board stage (workflow stages only) */
+  openTasksByStage: Record<string, number>;
 }
 
 type PeriodType = "day" | "week" | "month";
@@ -206,20 +210,6 @@ export function ReviewHub() {
       const allIssues = review?.issues || [];
       const attention = categorizeAttention(allIssues);
 
-      // Open tasks per person (authored OR assigned) — "tasks under their name"
-      const openTasksByUsername = new Map<string, number>();
-      for (const i of allIssues) {
-        if (i.state !== "open") continue;
-        const usernames = new Set<string>([i.authorUsername]);
-        for (const a of (i.assigneeUsernames || "").split(",")) {
-          const t = a.trim();
-          if (t) usernames.add(t);
-        }
-        for (const u of usernames) {
-          openTasksByUsername.set(u, (openTasksByUsername.get(u) || 0) + 1);
-        }
-      }
-
       // Sheet 1: Team Activity (selected period) — full roster, including
       // members with no activity in the period
       const teamSheet = XLSX.utils.json_to_sheet(
@@ -241,21 +231,18 @@ export function ReviewHub() {
             Username: p.username,
             Status: p.totalEvents > 0 ? "Active" : "No activity",
             Focus: focus,
-            "Issues Created": p.issuesCreated,
-            "Issues Closed": p.issuesClosed,
+            "Open Tasks": p.openTaskCount ?? 0,
             "MRs Merged": p.mrsMerged,
             Commits: p.commits,
             "Progress Delivered (%)": p.progressDelivered ?? 0,
             "Total Events": p.totalEvents,
             WIP: wipMap[p.username] || 0,
-            "Open Tasks": openTasksByUsername.get(p.username) || 0,
           };
         })
       );
       teamSheet["!cols"] = [
-        { wch: 22 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 15 }, { wch: 14 },
-        { wch: 12 }, { wch: 10 }, { wch: 20 }, { wch: 13 }, { wch: 8 },
-        { wch: 12 },
+        { wch: 22 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 12 },
+        { wch: 10 }, { wch: 20 }, { wch: 13 }, { wch: 8 },
       ];
 
       // Sheet 2: Needs Attention
@@ -508,7 +495,6 @@ export function ReviewHub() {
         wipLimit={wipLimit}
         from={fromIso}
         to={toIso}
-        issues={issues}
         repo={repoParam}
       />
 

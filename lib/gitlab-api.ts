@@ -103,6 +103,10 @@ export interface GitLabBranch {
   name: string;
   default: boolean;
   merged: boolean;
+  commit?: {
+    id: string;
+    committed_date: string;
+  };
 }
 
 const RATE_LIMIT_DELAY = 200; // 200ms between requests (GitLab allows ~60 req/min)
