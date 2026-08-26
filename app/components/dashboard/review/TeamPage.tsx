@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ReviewHeader } from "./ReviewHeader";
 import { TeamWeekSection } from "./TeamWeekSection";
 import { WIP_LIMIT, type ReviewData } from "./types";
@@ -32,7 +33,7 @@ interface PersonWeek {
   prevTotalEvents: number;
 }
 
-type PeriodType = "day" | "week" | "month";
+type PeriodType = "day" | "week" | "month" | "custom";
 
 function getWeekStart(d: Date): Date {
   const nd = new Date(d);
@@ -104,18 +105,24 @@ export function TeamPage() {
   // Period state
   const [periodType, setPeriodType] = useState<PeriodType>("week");
   const [anchor, setAnchor] = useState<Date>(() => new Date());
+  const [customFrom, setCustomFrom] = useState<string>("");
+  const [customTo, setCustomTo] = useState<string>("");
+  const isCustom = periodType === "custom";
 
   const [people, setPeople] = useState<PersonWeek[]>([]);
   const [teamLoading, setTeamLoading] = useState(true);
   const [review, setReview] = useState<ReviewData | null>(null);
   const [exporting, setExporting] = useState(false);
 
-  const range = getRange(periodType, anchor);
-  // Stable primitive deps — Date objects change identity every render
+  // Use custom dates when in custom mode, otherwise compute from period
+  const range = isCustom && customFrom && customTo
+    ? { from: new Date(customFrom), to: new Date(customTo) }
+    : getRange(periodType, anchor);
   const fromIso = range.from.toISOString();
   const toIso = range.to.toISOString();
-  const isCurrent =
-    rangeLabel(periodType, anchor) === rangeLabel(periodType, currentAnchor(periodType));
+  const isCurrent = isCustom
+    ? false
+    : rangeLabel(periodType, anchor) === rangeLabel(periodType, currentAnchor(periodType));
 
   const wipMap: Record<string, number> = {};
   for (const p of review?.people || []) wipMap[p.username] = p.wipCount;
@@ -229,45 +236,90 @@ export function TeamPage() {
               onClick={() => {
                 setPeriodType(t);
                 setAnchor(currentAnchor(t));
+                setCustomFrom("");
+                setCustomTo("");
               }}
               className={`px-3 py-2 text-sm font-medium transition-colors ${
-                periodType === t ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+                !isCustom && periodType === t
+                  ? "bg-primary text-primary-foreground"
+                  : "hover:bg-muted"
               }`}
             >
               {t === "day" ? "Today" : t === "week" ? "This Week" : "This Month"}
             </button>
           ))}
+          <button
+            onClick={() => {
+              if (!isCustom) {
+                // Switch to custom: pre-fill with current range
+                const r = getRange(periodType, anchor);
+                setCustomFrom(r.from.toISOString().slice(0, 10));
+                setCustomTo(r.to.toISOString().slice(0, 10));
+                setPeriodType("custom" as PeriodType);
+              }
+            }}
+            className={`px-3 py-2 text-sm font-medium transition-colors ${
+              isCustom ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+            }`}
+          >
+            Custom
+          </button>
         </div>
 
-        {/* Range navigation */}
-        <div className="flex items-center gap-1">
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => setAnchor((a) => shiftAnchor(periodType, a, -1))}
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={isCurrent}
-            onClick={() => setAnchor(currentAnchor(periodType))}
-          >
-            Now
-          </Button>
-          <Button
-            variant="outline"
-            size="icon"
-            disabled={isCurrent}
-            onClick={() => setAnchor((a) => shiftAnchor(periodType, a, 1))}
-          >
-            <ChevronRight className="h-4 w-4" />
-          </Button>
-        </div>
+        {/* Custom date range inputs */}
+        {isCustom && (
+          <div className="flex items-center gap-2">
+            <Input
+              type="date"
+              value={customFrom}
+              onChange={(e) => setCustomFrom(e.target.value)}
+              className="w-[150px]"
+            />
+            <span className="text-muted-foreground">–</span>
+            <Input
+              type="date"
+              value={customTo}
+              onChange={(e) => setCustomTo(e.target.value)}
+              className="w-[150px]"
+            />
+          </div>
+        )}
+
+        {/* Range navigation (hidden in custom mode) */}
+        {!isCustom && (
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setAnchor((a) => shiftAnchor(periodType, a, -1))}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isCurrent}
+              onClick={() => setAnchor(currentAnchor(periodType))}
+            >
+              Now
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              disabled={isCurrent}
+              onClick={() => setAnchor((a) => shiftAnchor(periodType, a, 1))}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
 
         <span className="text-sm font-medium px-1 min-w-[150px]">
-          {rangeLabel(periodType, anchor)}
+          {isCustom
+            ? customFrom && customTo
+              ? `${new Date(customFrom).toLocaleDateString(undefined, { month: "short", day: "numeric" })} – ${new Date(customTo).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}`
+              : "Select dates"
+            : rangeLabel(periodType, anchor)}
         </span>
 
         <Button variant="outline" onClick={exportExcel} disabled={exporting || people.length === 0}>
@@ -279,7 +331,7 @@ export function TeamPage() {
       <TeamWeekSection
         people={people}
         loading={teamLoading}
-        subtitle={`${rangeLabel(periodType, anchor)} · click a person to see what they worked on`}
+        subtitle={`${isCustom ? "Custom range" : rangeLabel(periodType, anchor)} · click a person to see what they worked on`}
         wipMap={wipMap}
         wipLimit={wipLimit}
         from={fromIso}
