@@ -260,23 +260,46 @@ export async function GET(request: NextRequest) {
     // Fallback stages for issues without workflow labels (shown at bottom)
     const FALLBACK_STAGES = ["Opened", "Closed"];
 
-    const result = peopleWithDeltas.map((p) => {
-      const byStage = openTasksByStage.get(p.username) || {};
-      const stages: Record<string, number> = {};
-      // Workflow stages first (in Kanban order)
-      for (const stage of WORKFLOW_STAGES) {
-        if (byStage[stage]) stages[stage] = byStage[stage];
+    const result = peopleWithDeltas
+      .map((p) => {
+        const byStage = openTasksByStage.get(p.username) || {};
+        const stages: Record<string, number> = {};
+        for (const stage of WORKFLOW_STAGES) {
+          if (byStage[stage]) stages[stage] = byStage[stage];
+        }
+        for (const stage of FALLBACK_STAGES) {
+          if (byStage[stage]) stages[stage] = byStage[stage];
+        }
+        return {
+          ...p,
+          openTaskCount: openTaskCount.get(p.username) || 0,
+          openTasksByStage: stages,
+        };
+      })
+      // Only show people with activity in the period OR open tasks assigned
+      .filter((p) => p.totalEvents > 0 || p.openTaskCount > 0);
+
+    // Fill in all-time lastActivityAt for people with no period activity
+    const needsLastActive = result.filter((p) => !p.lastActivityAt);
+    if (needsLastActive.length > 0) {
+      const usernames = needsLastActive.map((p) => p.username);
+      const lastRows = await db
+        .select({
+          userUsername: userActivity.userUsername,
+          lastAt: sql<string>`max(${userActivity.occurredAt})`,
+        })
+        .from(userActivity)
+        .where(sql`${userActivity.userUsername} IN ${usernames}`)
+        .groupBy(userActivity.userUsername);
+      const lastMap = new Map<string, string>();
+      for (const r of lastRows) lastMap.set(r.userUsername, r.lastAt);
+      for (const p of result) {
+        if (!p.lastActivityAt && lastMap.has(p.username)) {
+          const val = lastMap.get(p.username)!;
+          p.lastActivityAt = typeof val === "string" ? val : String(val);
+        }
       }
-      // Fallback stages last (Opened, Closed)
-      for (const stage of FALLBACK_STAGES) {
-        if (byStage[stage]) stages[stage] = byStage[stage];
-      }
-      return {
-        ...p,
-        openTaskCount: openTaskCount.get(p.username) || 0,
-        openTasksByStage: stages,
-      };
-    });
+    }
 
     return NextResponse.json({
       range: { from: from.toISOString(), to: to.toISOString() },

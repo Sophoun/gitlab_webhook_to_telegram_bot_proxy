@@ -668,6 +668,18 @@ function ContributionMixBar({ person }: { person: PersonWeek }) {
   const total = coordination + delivery + code;
 
   if (total === 0) {
+    if (person.openTaskCount > 0) {
+      return (
+        <div className="min-w-[110px]">
+          <div className="flex h-2 w-full rounded-full overflow-hidden bg-muted">
+            <div className="bg-gray-300 w-full" />
+          </div>
+          <span className="text-[10px] text-muted-foreground mt-0.5 block">
+            {person.openTaskCount} tasks assigned
+          </span>
+        </div>
+      );
+    }
     return <span className="text-xs text-muted-foreground">—</span>;
   }
 
