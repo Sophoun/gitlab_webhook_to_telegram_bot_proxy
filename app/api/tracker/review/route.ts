@@ -289,9 +289,10 @@ export async function GET(request: NextRequest) {
         stage,
         count: stageCounts.get(stage) || 0,
       })),
-      ...(stageCounts.get("No Stage")
-        ? [{ stage: "No Stage", count: stageCounts.get("No Stage")! }]
-        : []),
+      // Fallback stages at the bottom
+      ...(["Opened", "Closed"] as const)
+        .filter((s) => (stageCounts.get(s) || 0) > 0)
+        .map((s) => ({ stage: s, count: stageCounts.get(s)! })),
     ];
 
     // ---- Priority Breakdown (open issues) ----

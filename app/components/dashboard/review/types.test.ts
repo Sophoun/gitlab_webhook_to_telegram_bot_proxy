@@ -65,9 +65,9 @@ describe("parseBoardLabels — squad board aliases", () => {
 
   it("non-stage labels still resolve to No Stage", () => {
     expect(parseBoardLabels("Design,api,integration", "opened").boardStage).toBe(
-      "No Stage"
+      "Opened"
     );
-    expect(parseBoardLabels("Bug,P1 - High", "opened").boardStage).toBe("No Stage");
+    expect(parseBoardLabels("Bug,P1 - High", "opened").boardStage).toBe("Opened");
   });
 
   it("priority and team extraction still work with new aliases", () => {

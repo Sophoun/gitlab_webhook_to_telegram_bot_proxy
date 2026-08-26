@@ -125,8 +125,11 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
         count: counts.get(s)!,
       })),
     ];
-    if ((counts.get("No Stage") || 0) > 0) {
-      stages.push({ stage: "No Stage", count: counts.get("No Stage")! });
+    // Fallback stages at the bottom
+    for (const fallback of ["Opened", "Closed"]) {
+      if ((counts.get(fallback) || 0) > 0) {
+        stages.push({ stage: fallback, count: counts.get(fallback)! });
+      }
     }
     return stages;
   }, [issues, statusFilter]);

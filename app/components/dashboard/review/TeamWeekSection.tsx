@@ -92,7 +92,10 @@ const STAGE_BADGE_CLASS: Record<string, string> = {
   "Peer Review": "border-yellow-500/50 text-yellow-600",
   "Testing/QA": "border-orange-500/50 text-orange-600",
   Completed: "border-lime-600/50 text-lime-700",
-};
+  Opened: "border-gray-400/50 text-gray-500",
+} as const;
+
+const FALLBACK_STAGES = ["Opened", "Closed"];
 
 type SortField =
   | "name"
@@ -256,17 +259,40 @@ export function TeamWeekSection({
     }
   };
 
-  const getStageChips = (p: PersonWeek) =>
-    WORKFLOW_STAGES.filter((stage) => p.openTasksByStage[stage]).map((stage) => ({
+  const getStageChips = (p: PersonWeek) => {
+    const workflow = WORKFLOW_STAGES.filter((stage) => p.openTasksByStage[stage]).map((stage) => ({
       stage,
       count: p.openTasksByStage[stage],
     }));
-
-  const getDetailTaskGroups = (): Array<{ stage: string; items: OpenTask[] }> =>
-    WORKFLOW_STAGES.map((stage) => ({
+    const fallback = FALLBACK_STAGES.filter((stage) => p.openTasksByStage[stage]).map((stage) => ({
       stage,
-      items: (detail?.openTasks || []).filter((t) => t.boardStage === stage),
+      count: p.openTasksByStage[stage],
+    }));
+    return [...workflow, ...fallback];
+  };
+
+  const getDetailTaskGroups = (): Array<{ stage: string; items: OpenTask[] }> => {
+    const tasks = detail?.openTasks || [];
+    const grouped: Array<{ stage: string; items: OpenTask[] }> = WORKFLOW_STAGES.map((stage) => ({
+      stage,
+      items: tasks.filter((t) => t.boardStage === stage),
     })).filter((g) => g.items.length > 0);
+    // Fallback stages (Opened, Closed) at the bottom
+    const matched = new Set(grouped.flatMap((g) => g.items.map((t) => `${t.gitlabProjectId}-${t.issueIid}`)));
+    const unmatched = tasks.filter((t) => !matched.has(`${t.gitlabProjectId}-${t.issueIid}`));
+    // Group unmatched by their actual stage (e.g. "Opened", "Closed")
+    const fallbackGroups = new Map<string, OpenTask[]>();
+    for (const t of unmatched) {
+      const key = t.boardStage || "Opened";
+      const arr = fallbackGroups.get(key) || [];
+      arr.push(t);
+      fallbackGroups.set(key, arr);
+    }
+    for (const [stage, items] of fallbackGroups) {
+      grouped.push({ stage, items });
+    }
+    return grouped;
+  };
 
   return (
     <Card>

@@ -257,10 +257,18 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Fallback stages for issues without workflow labels (shown at bottom)
+    const FALLBACK_STAGES = ["Opened", "Closed"];
+
     const result = peopleWithDeltas.map((p) => {
       const byStage = openTasksByStage.get(p.username) || {};
       const stages: Record<string, number> = {};
+      // Workflow stages first (in Kanban order)
       for (const stage of WORKFLOW_STAGES) {
+        if (byStage[stage]) stages[stage] = byStage[stage];
+      }
+      // Fallback stages last (Opened, Closed)
+      for (const stage of FALLBACK_STAGES) {
         if (byStage[stage]) stages[stage] = byStage[stage];
       }
       return {

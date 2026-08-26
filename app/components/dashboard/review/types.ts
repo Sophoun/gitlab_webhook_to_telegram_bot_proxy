@@ -130,7 +130,7 @@ export function parseBoardLabels(
   else if (has("ready for dev")) boardStage = "Ready for Dev";
   else if (has("refinement")) boardStage = "Refinement";
   else if (has("backlog") || has("to do") || has("todo")) boardStage = "Backlog";
-  else boardStage = "No Stage";
+  else boardStage = "Opened";
 
   const prioToken = tokens.find((t) => /^p[0-3]\b/i.test(t));
   const priority = prioToken ? prioToken.slice(0, 2).toUpperCase() : null;
