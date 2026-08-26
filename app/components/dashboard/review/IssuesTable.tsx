@@ -16,6 +16,23 @@ import { ExternalLink, ArrowUpDown, ChevronLeft, ChevronRight } from "lucide-rea
 import { WORKFLOW_STAGES, getStageProgress, type ReviewIssue } from "./types";
 import { Progress } from "@/components/ui/progress";
 
+function SortHead({
+  field,
+  onSort,
+  children,
+}: {
+  field: string;
+  onSort: (field: string) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => onSort(field)}>
+      {children}
+      <ArrowUpDown className="ml-1 h-3 w-3" />
+    </Button>
+  );
+}
+
 interface IssuesTableProps {
   issues: ReviewIssue[];
   initialSortBy?: string;
@@ -39,6 +56,9 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"open" | "closed" | "all">("open");
   const [stageFilter, setStageFilter] = useState<string>("All");
+  const [assigneeFilter, setAssigneeFilter] = useState<string>("All");
+  const [priorityFilter, setPriorityFilter] = useState<string>("All");
+  const [teamFilter, setTeamFilter] = useState<string>("All");
   const [sortBy, setSortBy] = useState(initialSortBy || "stage");
   const [sortAsc, setSortAsc] = useState(true);
   const [page, setPage] = useState(1);
@@ -48,6 +68,12 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
     return issues.filter((i) => {
       if (statusFilter !== "all" && i.state !== statusFilter) return false;
       if (stageFilter !== "All" && i.boardStage !== stageFilter) return false;
+      if (priorityFilter !== "All" && (i.priority || "") !== priorityFilter) return false;
+      if (teamFilter !== "All" && (i.team || "") !== teamFilter) return false;
+      if (assigneeFilter !== "All") {
+        const people = [i.authorUsername, ...(i.assigneeUsernames || "").split(",").map((a) => a.trim())];
+        if (!people.includes(assigneeFilter)) return false;
+      }
       if (!q) return true;
       return (
         (i.issueTitle || "").toLowerCase().includes(q) ||
@@ -56,7 +82,36 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
         `#${i.issueIid}`.includes(q)
       );
     });
-  }, [issues, search, statusFilter, stageFilter]);
+  }, [issues, search, statusFilter, stageFilter, assigneeFilter, priorityFilter, teamFilter]);
+
+  // Facet options derived from the loaded issues
+  const assigneeOptions = useMemo(() => {
+    const names = new Map<string, string>(); // username -> display name
+    for (const i of issues) {
+      if (i.authorUsername && !names.has(i.authorUsername)) {
+        names.set(i.authorUsername, i.authorName);
+      }
+      for (const a of (i.assigneeUsernames || "").split(",")) {
+        const t = a.trim();
+        if (t && !names.has(t)) names.set(t, t);
+      }
+    }
+    return Array.from(names.entries())
+      .map(([username, name]) => ({ username, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [issues]);
+
+  const priorityOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const i of issues) if (i.priority) set.add(i.priority);
+    return Array.from(set).sort();
+  }, [issues]);
+
+  const teamOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const i of issues) if (i.team) set.add(i.team);
+    return Array.from(set).sort();
+  }, [issues]);
 
   // Stage chips reflect counts within the current status filter
   const stageChips = useMemo(() => {
@@ -127,14 +182,6 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
     const rem = hours % 24;
     return rem > 0 ? `${days}d ${rem}h` : `${days}d`;
   };
-
-  const SortHead = ({ field, children }: { field: string; children: React.ReactNode }) => (
-    <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => handleSort(field)}>
-      {children}
-      <ArrowUpDown className="ml-1 h-3 w-3" />
-    </Button>
-  );
-
   return (
     <div className="space-y-4">
       {/* Stage filter chips */}
@@ -180,6 +227,54 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
           }}
           className="max-w-xs"
         />
+        <select
+          value={assigneeFilter}
+          onChange={(e) => {
+            setAssigneeFilter(e.target.value);
+            setPage(1);
+          }}
+          className="h-9 rounded-md border bg-background px-3 text-sm"
+          aria-label="Filter by person"
+        >
+          <option value="All">All people</option>
+          {assigneeOptions.map((a) => (
+            <option key={a.username} value={a.username}>
+              {a.name !== a.username ? `${a.name} (@${a.username})` : `@${a.username}`}
+            </option>
+          ))}
+        </select>
+        <select
+          value={priorityFilter}
+          onChange={(e) => {
+            setPriorityFilter(e.target.value);
+            setPage(1);
+          }}
+          className="h-9 rounded-md border bg-background px-3 text-sm"
+          aria-label="Filter by priority"
+        >
+          <option value="All">All priorities</option>
+          {priorityOptions.map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
+        </select>
+        <select
+          value={teamFilter}
+          onChange={(e) => {
+            setTeamFilter(e.target.value);
+            setPage(1);
+          }}
+          className="h-9 rounded-md border bg-background px-3 text-sm"
+          aria-label="Filter by team"
+        >
+          <option value="All">All teams</option>
+          {teamOptions.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
         <div className="flex items-center rounded-lg border overflow-hidden">
           {(["open", "closed", "all"] as const).map((s) => (
             <button
@@ -207,7 +302,7 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
           <TableHeader>
             <TableRow>
               <TableHead>
-                <SortHead field="issueTitle">Issue</SortHead>
+                <SortHead field="issueTitle" onSort={handleSort}>Issue</SortHead>
               </TableHead>
               <TableHead>Project</TableHead>
               <TableHead>Author</TableHead>
@@ -216,17 +311,17 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
               <TableHead>Progress</TableHead>
               <TableHead>Priority</TableHead>
               <TableHead>
-                <SortHead field="createdAt">Created</SortHead>
+                <SortHead field="createdAt" onSort={handleSort}>Created</SortHead>
               </TableHead>
               <TableHead className="text-right">Age</TableHead>
               <TableHead>
-                <SortHead field="timeToCloseHours">Cycle Time</SortHead>
+                <SortHead field="timeToCloseHours" onSort={handleSort}>Cycle Time</SortHead>
               </TableHead>
               <TableHead>
-                <SortHead field="timeToFirstResponseHours">1st Response</SortHead>
+                <SortHead field="timeToFirstResponseHours" onSort={handleSort}>1st Response</SortHead>
               </TableHead>
               <TableHead>
-                <SortHead field="commentCount">Comments</SortHead>
+                <SortHead field="commentCount" onSort={handleSort}>Comments</SortHead>
               </TableHead>
               <TableHead>Labels</TableHead>
             </TableRow>

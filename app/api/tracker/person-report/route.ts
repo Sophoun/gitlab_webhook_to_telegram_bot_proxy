@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { userActivity, issueAnalytics, gitlabRepos } from "@/db/schema";
-import { and, eq, gte, lte, asc, or, like } from "drizzle-orm";
+import { and, eq, gte, lte, asc, like } from "drizzle-orm";
 import { parseBoardLabels } from "@/app/components/dashboard/review/types";
 
 interface ActivityRow {
@@ -165,16 +165,16 @@ export async function GET(request: NextRequest) {
         and(
           // Raw GitLab state value — "opened", not "open"
           eq(issueAnalytics.state, "opened"),
-          or(
-            eq(issueAnalytics.authorUsername, user.toLowerCase()),
-            like(issueAnalytics.assigneeUsernames, `%${user.toLowerCase()}%`)
-          )
+          // Only fetch rows where this person is an assignee — the JS
+          // filter below does exact comma-token matching.
+          like(issueAnalytics.assigneeUsernames, `%${user.toLowerCase()}%`)
         )
       );
 
     const openTasks = openTaskRows
       .filter((r) => {
-        if (r.authorUsername === user.toLowerCase()) return true;
+        // Open tasks are owned by the ASSIGNEE (who does the work), not
+        // the author (who created it). Same logic as team-week count.
         const assignees = (r.assigneeUsernames || "").split(",").map((a) => a.trim());
         return assignees.includes(user.toLowerCase());
       })

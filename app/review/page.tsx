@@ -1,12 +1,13 @@
-"use client";
-
+import { Suspense } from "react";
 import { Sidebar } from "../components/dashboard/Sidebar";
-import { ReviewHub } from "../components/dashboard/review/ReviewHub";
+import { ReviewOverview } from "../components/dashboard/review/ReviewOverview";
 
 export default function ReviewPage() {
   return (
     <Sidebar>
-      <ReviewHub />
+      <Suspense>
+        <ReviewOverview />
+      </Suspense>
     </Sidebar>
   );
 }

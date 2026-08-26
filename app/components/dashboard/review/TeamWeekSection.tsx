@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, Fragment } from "react";
+import { useState, useMemo, Fragment } from "react";
+import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -23,6 +24,10 @@ import {
   Users2,
   GitMerge,
   Code2,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  Clock,
 } from "lucide-react";
 import { WORKFLOW_STAGES } from "./types";
 
@@ -35,12 +40,14 @@ interface PersonWeek {
   mrsMerged: number;
   commits: number;
   totalEvents: number;
-  /** Progress % added via /dev + /test + /uat commands in the period */
   progressDelivered: number;
-  /** Open issues authored or assigned, across ALL synced repos */
   openTaskCount: number;
-  /** Open task count per board stage (workflow stages only) */
   openTasksByStage: Record<string, number>;
+  lastActivityAt: string | null;
+  prevCommits: number;
+  prevMrsMerged: number;
+  prevIssuesClosed: number;
+  prevTotalEvents: number;
 }
 
 interface ItemRef {
@@ -75,10 +82,8 @@ interface TeamWeekSectionProps {
   subtitle?: string;
   wipMap?: Record<string, number>;
   wipLimit?: number;
-  /** Selected period bounds — required so the detail matches the table */
   from: string;
   to: string;
-  /** GitLab repo id when the dashboard is scoped to a specific repo */
   repo?: string | null;
 }
 
@@ -88,6 +93,90 @@ const STAGE_BADGE_CLASS: Record<string, string> = {
   "Testing/QA": "border-orange-500/50 text-orange-600",
   Completed: "border-lime-600/50 text-lime-700",
 };
+
+type SortField =
+  | "name"
+  | "openTaskCount"
+  | "progressDelivered"
+  | "mrsMerged"
+  | "commits"
+  | "totalEvents"
+  | "lastActivityAt";
+
+function DeltaIndicator({ current, previous }: { current: number; previous: number }) {
+  if (previous === 0 && current === 0) return null;
+  const diff = current - previous;
+  if (diff === 0) return null;
+  const pct = previous > 0 ? Math.round(((current - previous) / previous) * 100) : null;
+  const label =
+    pct !== null ? `${Math.abs(pct)}%` : current > 0 ? "new" : "↓";
+  return (
+    <span
+      className={`inline-flex items-center gap-0.5 text-[10px] ml-1 ${
+        diff > 0 ? "text-emerald-600" : "text-red-500"
+      }`}
+    >
+      {diff > 0 ? (
+        <ArrowUp className="h-2.5 w-2.5" />
+      ) : (
+        <ArrowDown className="h-2.5 w-2.5" />
+      )}
+      {label}
+    </span>
+  );
+}
+
+function formatLastActive(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function SortHead({
+  field,
+  currentField,
+  currentAsc,
+  onSort,
+  children,
+}: {
+  field: SortField;
+  currentField: SortField;
+  currentAsc: boolean;
+  onSort: (f: SortField) => void;
+  children: React.ReactNode;
+}) {
+  const active = currentField === field;
+  return (
+    <TableHead>
+      <button
+        onClick={() => onSort(field)}
+        className={`inline-flex items-center gap-1 text-xs font-medium hover:text-foreground transition-colors ${
+          active ? "text-foreground" : "text-muted-foreground"
+        }`}
+      >
+        {children}
+        {active ? (
+          currentAsc ? (
+            <ArrowUp className="h-3 w-3" />
+          ) : (
+            <ArrowDown className="h-3 w-3" />
+          )
+        ) : (
+          <ArrowUpDown className="h-3 w-3 opacity-40" />
+        )}
+      </button>
+    </TableHead>
+  );
+}
 
 export function TeamWeekSection({
   people,
@@ -102,6 +191,47 @@ export function TeamWeekSection({
   const [expanded, setExpanded] = useState<string | null>(null);
   const [detail, setDetail] = useState<PersonReport | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [sortBy, setSortBy] = useState<SortField>("totalEvents");
+  const [sortAsc, setSortAsc] = useState(false);
+
+  const sorted = useMemo(() => {
+    return [...people].sort((a, b) => {
+      switch (sortBy) {
+        case "name": {
+          const av = a.name.toLowerCase();
+          const bv = b.name.toLowerCase();
+          return sortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
+        }
+        case "lastActivityAt": {
+          const av = a.lastActivityAt || "";
+          const bv = b.lastActivityAt || "";
+          return sortAsc ? av.localeCompare(bv) : bv.localeCompare(av);
+        }
+        case "openTaskCount":
+          return sortAsc ? a.openTaskCount - b.openTaskCount : b.openTaskCount - a.openTaskCount;
+        case "progressDelivered":
+          return sortAsc
+            ? a.progressDelivered - b.progressDelivered
+            : b.progressDelivered - a.progressDelivered;
+        case "mrsMerged":
+          return sortAsc ? a.mrsMerged - b.mrsMerged : b.mrsMerged - a.mrsMerged;
+        case "commits":
+          return sortAsc ? a.commits - b.commits : b.commits - a.commits;
+        case "totalEvents":
+        default:
+          return sortAsc ? a.totalEvents - b.totalEvents : b.totalEvents - a.totalEvents;
+      }
+    });
+  }, [people, sortBy, sortAsc]);
+
+  const handleSort = (field: SortField) => {
+    if (sortBy === field) {
+      setSortAsc((v) => !v);
+    } else {
+      setSortBy(field);
+      setSortAsc(field === "name" || field === "lastActivityAt");
+    }
+  };
 
   const togglePerson = async (username: string) => {
     if (expanded === username) {
@@ -113,7 +243,6 @@ export function TeamWeekSection({
     setDetail(null);
     setDetailLoading(true);
     try {
-      // Use the SAME period AND repo scope as the table so numbers always match
       const repoQs = repo ? `&repo=${repo}` : "";
       const res = await fetch(
         `/api/tracker/person-report?user=${encodeURIComponent(username)}&from=${from}&to=${to}${repoQs}`
@@ -127,15 +256,12 @@ export function TeamWeekSection({
     }
   };
 
-  // Stage chips under the person's name — cross-project open tasks by stage
   const getStageChips = (p: PersonWeek) =>
     WORKFLOW_STAGES.filter((stage) => p.openTasksByStage[stage]).map((stage) => ({
       stage,
       count: p.openTasksByStage[stage],
     }));
 
-  // Expanded detail: the person's open tasks (all projects) grouped by stage,
-  // in workflow order
   const getDetailTaskGroups = (): Array<{ stage: string; items: OpenTask[] }> =>
     WORKFLOW_STAGES.map((stage) => ({
       stage,
@@ -168,36 +294,66 @@ export function TeamWeekSection({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Person</TableHead>
+                  <SortHead field="name" currentField={sortBy} currentAsc={sortAsc} onSort={handleSort}>
+                    Person
+                  </SortHead>
                   <TableHead>
                     <span className="inline-flex items-center gap-1">
                       <Users2 className="h-3 w-3 text-muted-foreground" /> Contribution
                     </span>
                   </TableHead>
-                  <TableHead className="text-right">
-                    <span className="inline-flex items-center gap-1">
-                      <ListTodo className="h-3 w-3 text-blue-500" /> Open Tasks
-                    </span>
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <span className="inline-flex items-center gap-1">
-                      <Gauge className="h-3 w-3 text-orange-500" /> Progress
-                    </span>
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <span className="inline-flex items-center gap-1">
-                      <GitMerge className="h-3 w-3 text-teal-600" /> MRs
-                    </span>
-                  </TableHead>
-                  <TableHead className="text-right">
-                    <span className="inline-flex items-center gap-1">
-                      <Code2 className="h-3 w-3 text-emerald-600" /> Commits
-                    </span>
-                  </TableHead>
+                  <SortHead
+                    field="openTaskCount"
+                    currentField={sortBy}
+                    currentAsc={sortAsc}
+                    onSort={handleSort}
+                  >
+                    <ListTodo className="h-3 w-3 text-blue-500" /> Open Tasks
+                  </SortHead>
+                  <SortHead
+                    field="progressDelivered"
+                    currentField={sortBy}
+                    currentAsc={sortAsc}
+                    onSort={handleSort}
+                  >
+                    <Gauge className="h-3 w-3 text-orange-500" /> Progress
+                  </SortHead>
+                  <SortHead
+                    field="mrsMerged"
+                    currentField={sortBy}
+                    currentAsc={sortAsc}
+                    onSort={handleSort}
+                  >
+                    <GitMerge className="h-3 w-3 text-teal-600" /> MRs
+                  </SortHead>
+                  <SortHead
+                    field="commits"
+                    currentField={sortBy}
+                    currentAsc={sortAsc}
+                    onSort={handleSort}
+                  >
+                    <Code2 className="h-3 w-3 text-emerald-600" /> Commits
+                  </SortHead>
+                  <SortHead
+                    field="totalEvents"
+                    currentField={sortBy}
+                    currentAsc={sortAsc}
+                    onSort={handleSort}
+                  >
+                    Total
+                  </SortHead>
+                  <SortHead
+                    field="lastActivityAt"
+                    currentField={sortBy}
+                    currentAsc={sortAsc}
+                    onSort={handleSort}
+                  >
+                    <Clock className="h-3 w-3 text-muted-foreground" /> Last Active
+                  </SortHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {people.map((p) => (
+                {sorted.map((p) => (
                   <Fragment key={p.username}>
                     <TableRow
                       className={`cursor-pointer hover:bg-muted/50 ${expanded === p.username ? "bg-muted/50" : ""}`}
@@ -217,7 +373,14 @@ export function TeamWeekSection({
                           </div>
                           <div className="min-w-0">
                             <div className="font-medium truncate flex items-center gap-2">
-                              {p.name}
+                              <Link
+                                href={`/review/people/${encodeURIComponent(p.username)}`}
+                                className="hover:underline"
+                                onClick={(e) => e.stopPropagation()}
+                                title="Open full profile"
+                              >
+                                {p.name}
+                              </Link>
                               {(wipMap[p.username] || 0) > wipLimit && (
                                 <Badge variant="destructive" className="text-[10px] shrink-0">
                                   WIP {wipMap[p.username]}/{wipLimit}
@@ -266,16 +429,24 @@ export function TeamWeekSection({
                       </TableCell>
                       <TableCell className="text-right font-medium text-teal-700">
                         {p.mrsMerged}
+                        <DeltaIndicator current={p.mrsMerged} previous={p.prevMrsMerged} />
                       </TableCell>
                       <TableCell className="text-right font-medium text-emerald-700">
                         {p.commits}
+                        <DeltaIndicator current={p.commits} previous={p.prevCommits} />
+                      </TableCell>
+                      <TableCell className="text-right font-medium text-muted-foreground">
+                        {p.totalEvents}
+                        <DeltaIndicator current={p.totalEvents} previous={p.prevTotalEvents} />
+                      </TableCell>
+                      <TableCell className="text-right text-xs text-muted-foreground whitespace-nowrap">
+                        {formatLastActive(p.lastActivityAt)}
                       </TableCell>
                     </TableRow>
 
-                    {/* Expanded detail row */}
                     {expanded === p.username && (
                       <TableRow>
-                        <TableCell colSpan={6} className="bg-muted/30 p-4">
+                        <TableCell colSpan={8} className="bg-muted/30 p-4">
                           {detailLoading ? (
                             <p className="text-sm text-muted-foreground py-2">Loading details...</p>
                           ) : !detail ? (
@@ -284,7 +455,6 @@ export function TeamWeekSection({
                             </p>
                           ) : (
                             <div className="space-y-4">
-                              {/* Open tasks across ALL projects, grouped by stage */}
                               <div>
                                 <p className="text-xs font-medium text-muted-foreground mb-2">
                                   Open tasks across all projects
@@ -339,7 +509,6 @@ export function TeamWeekSection({
                                 )}
                               </div>
 
-                              {/* This period's activity */}
                               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t">
                                 <div>
                                   <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
@@ -379,11 +548,6 @@ export function TeamWeekSection({
   );
 }
 
-/**
- * Contribution mix — how a person's period activity splits across the three
- * kinds of work. Makes different roles comparable WITHOUT ranking them:
- * managers show a coordination-dominant bar, coders a code-dominant one.
- */
 function ContributionMixBar({ person }: { person: PersonWeek }) {
   const coordination = person.issuesCreated;
   const delivery = person.issuesClosed;
@@ -417,6 +581,7 @@ function ContributionMixBar({ person }: { person: PersonWeek }) {
     </div>
   );
 }
+
 function DetailList({ items, empty }: { items: ItemRef[]; empty: string }) {
   if (items.length === 0) {
     return <p className="text-sm text-muted-foreground">{empty}</p>;
