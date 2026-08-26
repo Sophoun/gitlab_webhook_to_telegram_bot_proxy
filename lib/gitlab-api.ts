@@ -99,6 +99,12 @@ export interface GitLabCommit {
   web_url: string;
 }
 
+export interface GitLabBranch {
+  name: string;
+  default: boolean;
+  merged: boolean;
+}
+
 const RATE_LIMIT_DELAY = 200; // 200ms between requests (GitLab allows ~60 req/min)
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 2000;
@@ -368,10 +374,35 @@ export class GitLabClient {
     return notes;
   }
 
+  /**
+   * Fetch the most recently active branches of a project. Bounded by
+   * maxBranches so huge repos with hundreds of stale branches don't explode
+   * sync time.
+   *
+   * Sorting is done CLIENT-SIDE by each branch's last commit date — older
+   * self-hosted GitLab versions reject `order_by=updated&sort=desc`
+   * ("sort does not have a valid value"), so no ordering params are sent.
+   */
+  async getBranches(projectId: number, maxBranches = 10): Promise<string[]> {
+    const url = `${this.apiBase}/projects/${projectId}/repository/branches?per_page=100`;
+    const response = await fetchWithRetry(url, { headers: this.getHeaders() });
+    const data = await response.json();
+    if (!Array.isArray(data)) return [];
+    const sorted = [...data]
+      .sort(
+        (a: GitLabBranch, b: GitLabBranch) =>
+          new Date(b.commit?.committed_date ?? 0).getTime() -
+          new Date(a.commit?.committed_date ?? 0).getTime()
+      )
+      .slice(0, maxBranches);
+    return sorted.map((b: GitLabBranch) => b.name).filter(Boolean);
+  }
+
   async getCommits(
     projectId: number,
     since?: string,
-    until?: string
+    until?: string,
+    ref?: string
   ): Promise<GitLabCommit[]> {
     const commits: GitLabCommit[] = [];
     let page = 1;
@@ -384,6 +415,9 @@ export class GitLabClient {
       }
       if (until) {
         url += `&until=${until}`;
+      }
+      if (ref) {
+        url += `&ref_name=${encodeURIComponent(ref)}`;
       }
 
       const response = await fetchWithRetry(url, { headers: this.getHeaders() });
@@ -403,6 +437,54 @@ export class GitLabClient {
     }
 
     return commits;
+  }
+
+  /**
+   * Fetch commits across ALL recently-active branches, deduplicated by SHA.
+   *
+   * The plain getCommits() only walks the DEFAULT branch, so feature-branch
+   * work is invisible until merged (and squash merges collapse it to a single
+   * commit) — which massively undercounts real coding activity. Iterating
+   * branches fixes that; the branch cap keeps API cost bounded.
+   */
+  async getAllBranchCommits(
+    projectId: number,
+    since?: string,
+    defaultBranch?: string,
+    maxBranches = 10
+  ): Promise<GitLabCommit[]> {
+    // Branch listing can fail (empty/archived projects return 404) — that
+    // must never abort the whole sync, so fall back to the default branch.
+    let branches: string[];
+    try {
+      branches = await this.getBranches(projectId, maxBranches);
+    } catch {
+      branches = [];
+    }
+    if (branches.length === 0 && defaultBranch) {
+      branches = [defaultBranch];
+    } else if (defaultBranch && !branches.includes(defaultBranch)) {
+      branches.unshift(defaultBranch);
+    }
+
+    const seen = new Set<string>();
+    const all: GitLabCommit[] = [];
+    for (const ref of branches) {
+      try {
+        const branchCommits = await this.getCommits(projectId, since, undefined, ref);
+        for (const c of branchCommits) {
+          if (!seen.has(c.id)) {
+            seen.add(c.id);
+            all.push(c);
+          }
+        }
+      } catch (error) {
+        console.warn(
+          `    Could not fetch commits for branch ${ref}: ${error instanceof Error ? error.message : error}`
+        );
+      }
+    }
+    return all;
   }
 }
 

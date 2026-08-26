@@ -14,12 +14,60 @@ import { parseProgressCommands, parseProgressUpdate } from "@/lib/progress-parse
 import { parseCrossProjectRefs } from "@/lib/issue-links";
 import { and, eq, ne } from "drizzle-orm";
 
+/**
+ * Normalize a person's display name so variants match: "Dalin.LOEM",
+ * "Dalin LOEM" and "dalin loem" all collapse to the same key. Words are then
+ * sorted because given/family order flips between systems ("Sophoun NHEUM"
+ * vs "Nheum Sophoun").
+ */
+function normalizePersonName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[._-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .sort()
+    .join(" ");
+}
+
+/**
+ * Build lookup maps from every username/name ever recorded on issues, MRs and
+ * comments (NOT commits — those are the records we're trying to fix).
+ * Used to resolve commit authors who push under secondary accounts or with
+ * casing variants: their commit is remapped to the canonical roster identity.
+ */
+async function buildRosterMaps(db: ReturnType<typeof getDb>) {
+  const rows = await db
+    .select({
+      username: userActivity.userUsername,
+      name: userActivity.userName,
+    })
+    .from(userActivity)
+    .where(ne(userActivity.activityType, "commit"));
+
+  const usernamesByLower = new Map<string, string>(); // lower username -> canonical
+  const usernameByName = new Map<string, string>(); // normalized name -> canonical
+  for (const r of rows) {
+    if (!r.username) continue;
+    const lower = r.username.toLowerCase();
+    if (!usernamesByLower.has(lower)) usernamesByLower.set(lower, lower);
+    const norm = normalizePersonName(r.name || "");
+    if (norm && !usernameByName.has(norm)) usernameByName.set(norm, lower);
+  }
+  return { usernamesByLower, usernameByName };
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const { gitlab_project_ids, from_date } = body;
 
     const db = getDb();
+
+    // Canonical identity maps for commit attribution (see buildRosterMaps).
+    // Built BEFORE any rows are deleted so prior sync data is still visible.
+    const roster = await buildRosterMaps(db);
 
     // Get all project configs
     const allConfigs = await db.select().from(projects);
@@ -145,7 +193,7 @@ export async function POST(request: NextRequest) {
               projectName: config.name,
               gitlabProjectId: gitlabProject.id,
               userName: issue.author.name,
-              userUsername: issue.author.username,
+              userUsername: issue.author.username.toLowerCase(),
               activityType: "issue_created",
               itemIid: issue.iid,
               itemTitle: issue.title,
@@ -165,7 +213,7 @@ export async function POST(request: NextRequest) {
                 projectName: config.name,
                 gitlabProjectId: gitlabProject.id,
                 userName: closer.name,
-                userUsername: closer.username,
+                userUsername: closer.username.toLowerCase(),
                 activityType: "issue_closed",
                 itemIid: issue.iid,
                 itemTitle: issue.title,
@@ -191,13 +239,13 @@ export async function POST(request: NextRequest) {
               let qaProgressEntry: { value: number; at: Date; by: string } | null = null;
 
               for (const note of nonSystemNotes) {
-                commenters.add(note.author.username);
+                const noteUsername = note.author.username.toLowerCase();
+                commenters.add(noteUsername);
 
                 // Check if this is the first response by someone other than author
                 if (!firstResponseAt && note.author.username !== issue.author.username) {
                   firstResponseAt = new Date(note.created_at);
                 }
-
                 // Parse progress commands (e.g. "/dev 60", "/uat 35%")
                 const progressCmds = parseProgressUpdate(note.body);
                 if (progressCmds.dev !== null || progressCmds.qa !== null) {
@@ -212,7 +260,7 @@ export async function POST(request: NextRequest) {
                       issueIid: issue.iid,
                       stage: cmd.stage,
                       progress: cmd.value,
-                      updatedBy: note.author.username || "",
+                      updatedBy: noteUsername,
                       occurredAt: noteAt,
                     });
                   }
@@ -224,7 +272,7 @@ export async function POST(request: NextRequest) {
                     devProgressEntry = {
                       value: progressCmds.dev,
                       at: noteAt,
-                      by: note.author.username,
+                      by: noteUsername,
                     };
                   }
                   if (
@@ -234,7 +282,7 @@ export async function POST(request: NextRequest) {
                     qaProgressEntry = {
                       value: progressCmds.qa,
                       at: noteAt,
-                      by: note.author.username,
+                      by: noteUsername,
                     };
                   }
                 }
@@ -245,7 +293,7 @@ export async function POST(request: NextRequest) {
                   projectName: config.name,
                   gitlabProjectId: gitlabProject.id,
                   userName: note.author.name,
-                  userUsername: note.author.username,
+                  userUsername: noteUsername,
                   activityType: "issue_comment",
                   itemIid: issue.iid,
                   itemTitle: issue.title,
@@ -275,12 +323,14 @@ export async function POST(request: NextRequest) {
                 issueIid: issue.iid,
                 issueTitle: issue.title,
                 issueUrl: issue.web_url,
-                authorUsername: issue.author.username,
+                authorUsername: issue.author.username.toLowerCase(),
                 authorName: issue.author.name,
                 state: issue.state,
                 labels: issue.labels.join(","),
                 assigneeUsernames:
-                  issue.assignees?.map((a) => a.username).join(",") || null,
+                  issue.assignees
+                    ?.map((a) => a.username.toLowerCase())
+                    .join(",") || null,
                 createdAt: createdAt,
                 closedAt: closedAt,
                 firstResponseAt: firstResponseAt,
@@ -413,12 +463,13 @@ export async function POST(request: NextRequest) {
           console.log(`    Found ${mergeRequests.length} merge requests`);
 
           for (const mr of mergeRequests) {
+            const mrAuthorUsername = mr.author.username.toLowerCase();
             activitiesToInsert.push({
               projectId: config.id,
               projectName: config.name,
               gitlabProjectId: gitlabProject.id,
               userName: mr.author.name,
-              userUsername: mr.author.username,
+              userUsername: mrAuthorUsername,
               activityType: "mr_created",
               itemIid: mr.iid,
               itemTitle: mr.title,
@@ -436,7 +487,7 @@ export async function POST(request: NextRequest) {
                 projectName: config.name,
                 gitlabProjectId: gitlabProject.id,
                 userName: mr.author.name,
-                userUsername: mr.author.username,
+                userUsername: mrAuthorUsername,
                 activityType: "mr_merged",
                 itemIid: mr.iid,
                 itemTitle: mr.title,
@@ -453,7 +504,7 @@ export async function POST(request: NextRequest) {
                 projectName: config.name,
                 gitlabProjectId: gitlabProject.id,
                 userName: mr.author.name,
-                userUsername: mr.author.username,
+                userUsername: mrAuthorUsername,
                 activityType: "mr_closed",
                 itemIid: mr.iid,
                 itemTitle: mr.title,
@@ -465,13 +516,21 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          // Fetch commits
-          const commits = await client.getCommits(gitlabProject.id, from_date);
+          // Fetch commits across ALL recently-active branches — the default
+          // branch alone hides feature-branch work until it's merged.
+          const commits = await client.getAllBranchCommits(
+            gitlabProject.id,
+            from_date,
+            gitlabProject.default_branch
+          );
           stats.commitsFetched += commits.length;
           console.log(`    Found ${commits.length} commits`);
 
           // Build email/name -> GitLab username maps from project members so
           // commits are attributed to real users instead of email prefixes.
+          // Keys AND values are lowercased: usernames are matched
+          // case-insensitively everywhere else, so "SEAVYONG.LA" and
+          // "seavyong.la" must not become two different people.
           // Members with empty usernames are skipped — an empty mapping value
           // would otherwise pass the ?? fallback and blank out attribution.
           const emailToUsername = new Map<string, string>();
@@ -480,10 +539,11 @@ export async function POST(request: NextRequest) {
             const members = await client.getProjectMembers(gitlabProject.id);
             for (const m of members) {
               if (!m.username) continue;
-              if (m.email) emailToUsername.set(m.email.toLowerCase(), m.username);
+              const lower = m.username.toLowerCase();
+              if (m.email) emailToUsername.set(m.email.toLowerCase(), lower);
               if (m.public_email)
-                emailToUsername.set(m.public_email.toLowerCase(), m.username);
-              if (m.name) nameToUsername.set(m.name.toLowerCase(), m.username);
+                emailToUsername.set(m.public_email.toLowerCase(), lower);
+              if (m.name) nameToUsername.set(m.name.toLowerCase(), lower);
             }
           } catch (err) {
             console.warn(
@@ -493,10 +553,22 @@ export async function POST(request: NextRequest) {
 
           for (const commit of commits) {
             const email = (commit.author_email || "").toLowerCase();
-            const resolvedUsername =
+            let resolvedUsername =
               emailToUsername.get(email) ??
               nameToUsername.get(commit.author_name.toLowerCase()) ??
               (commit.author_email.split("@")[0] || commit.author_name);
+            resolvedUsername = resolvedUsername.toLowerCase();
+
+            // Alias unification: secondary accounts (e.g. "dalinloem_cmcb")
+            // are remapped to the canonical roster identity when the author's
+            // display name matches a known person. Usernames already on the
+            // roster are kept as-is.
+            if (!roster.usernamesByLower.has(resolvedUsername)) {
+              const canonical = roster.usernameByName.get(
+                normalizePersonName(commit.author_name || "")
+              );
+              if (canonical) resolvedUsername = canonical;
+            }
 
             activitiesToInsert.push({
               projectId: config.id,
