@@ -5,7 +5,7 @@ import { and, eq, gte, lte, sql } from "drizzle-orm";
 import { computeProgressDelivered } from "@/lib/progress-parser";
 import { parseBoardLabels, WORKFLOW_STAGES } from "@/app/components/dashboard/review/types";
 
-type PeriodType = "day" | "week" | "month";
+type PeriodType = "day" | "week" | "month" | "custom";
 
 function shiftRange(type: PeriodType, from: Date, to: Date, delta: number): { from: Date; to: Date } {
   const nf = new Date(from);
@@ -207,9 +207,13 @@ export async function GET(request: NextRequest) {
     // Fetch current period
     const currentPeople = await fetchPeriodData(db, from, to, repoId);
 
-    // Fetch previous period for deltas
-    const prevRange = shiftRange(periodType, from, to, -1);
-    const prevPeople = await fetchPeriodData(db, prevRange.from, prevRange.to, repoId);
+    // Fetch previous period for deltas (skip for custom ranges — no meaningful prev)
+    let prevPeople = currentPeople;
+    let prevRange = { from, to };
+    if (periodType !== "custom") {
+      prevRange = shiftRange(periodType, from, to, -1);
+      prevPeople = await fetchPeriodData(db, prevRange.from, prevRange.to, repoId);
+    }
 
     // Build a lookup for previous period deltas
     const prevMap = new Map<string, (typeof prevPeople)[number]>();
