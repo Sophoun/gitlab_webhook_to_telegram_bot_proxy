@@ -19,7 +19,9 @@ import {
   MessageSquare,
   ExternalLink,
   Gauge,
-  FolderGit2,
+  Users2,
+  GitMerge,
+  Code2,
 } from "lucide-react";
 import { WORKFLOW_STAGES, type ReviewIssue } from "./types";
 
@@ -28,7 +30,6 @@ interface PersonWeek {
   name: string;
   issuesCreated: number;
   issuesClosed: number;
-  comments: number;
   mrsCreated: number;
   mrsMerged: number;
   commits: number;
@@ -49,13 +50,6 @@ interface PersonReport {
   createdIssues: ItemRef[];
   commentedOn: ItemRef[];
   mergedMrs: ItemRef[];
-  /** Work in non-main GitLab repos — kept separate from headline numbers */
-  childWork?: {
-    totalEvents: number;
-    closedIssues: ItemRef[];
-    mergedMrs: ItemRef[];
-    commitItems: ItemRef[];
-  };
 }
 
 interface TeamWeekSectionProps {
@@ -167,6 +161,11 @@ export function TeamWeekSection({
               <TableHeader>
                 <TableRow>
                   <TableHead>Person</TableHead>
+                  <TableHead>
+                    <span className="inline-flex items-center gap-1">
+                      <Users2 className="h-3 w-3 text-muted-foreground" /> Contribution
+                    </span>
+                  </TableHead>
                   <TableHead className="text-right">
                     <span className="inline-flex items-center gap-1">
                       <CircleDot className="h-3 w-3 text-blue-500" /> Created
@@ -184,7 +183,12 @@ export function TeamWeekSection({
                   </TableHead>
                   <TableHead className="text-right">
                     <span className="inline-flex items-center gap-1">
-                      <MessageSquare className="h-3 w-3 text-purple-500" /> Comments
+                      <GitMerge className="h-3 w-3 text-teal-600" /> MRs
+                    </span>
+                  </TableHead>
+                  <TableHead className="text-right">
+                    <span className="inline-flex items-center gap-1">
+                      <Code2 className="h-3 w-3 text-emerald-600" /> Commits
                     </span>
                   </TableHead>
                 </TableRow>
@@ -235,6 +239,9 @@ export function TeamWeekSection({
                           </div>
                         </div>
                       </TableCell>
+                      <TableCell>
+                        <ContributionMixBar person={p} />
+                      </TableCell>
                       <TableCell className="text-right font-medium">{p.issuesCreated}</TableCell>
                       <TableCell className="text-right font-medium text-green-600">
                         {p.issuesClosed}
@@ -248,13 +255,18 @@ export function TeamWeekSection({
                           +{p.progressDelivered}%
                         </span>
                       </TableCell>
-                      <TableCell className="text-right">{p.comments}</TableCell>
+                      <TableCell className="text-right font-medium text-teal-700">
+                        {p.mrsMerged}
+                      </TableCell>
+                      <TableCell className="text-right font-medium text-emerald-700">
+                        {p.commits}
+                      </TableCell>
                     </TableRow>
 
                     {/* Expanded detail row */}
                     {expanded === p.username && (
                       <TableRow>
-                        <TableCell colSpan={5} className="bg-muted/30 p-4">
+                        <TableCell colSpan={7} className="bg-muted/30 p-4">
                           {detailLoading ? (
                             <p className="text-sm text-muted-foreground py-2">Loading details...</p>
                           ) : !detail ? (
@@ -319,49 +331,6 @@ export function TeamWeekSection({
                                 )}
                               </div>
 
-                              {/* Child-repo work (separate from headline numbers) */}
-                              {detail.childWork && detail.childWork.totalEvents > 0 && (
-                                <div className="pt-2 border-t">
-                                  <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
-                                    <FolderGit2 className="h-3 w-3 text-orange-500" />
-                                    Child project work ({detail.childWork.totalEvents} events —
-                                    not counted above)
-                                  </p>
-                                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    <div>
-                                      <p className="text-xs text-muted-foreground mb-1.5">
-                                        Issues closed in child repos (
-                                        {detail.childWork.closedIssues.length})
-                                      </p>
-                                      <DetailList
-                                        items={detail.childWork.closedIssues}
-                                        empty="None"
-                                      />
-                                    </div>
-                                    <div>
-                                      <p className="text-xs text-muted-foreground mb-1.5">
-                                        MRs merged in child repos (
-                                        {detail.childWork.mergedMrs.length})
-                                      </p>
-                                      <DetailList
-                                        items={detail.childWork.mergedMrs}
-                                        empty="None"
-                                      />
-                                    </div>
-                                    <div>
-                                      <p className="text-xs text-muted-foreground mb-1.5">
-                                        Commits in child repos (
-                                        {detail.childWork.commitItems.length})
-                                      </p>
-                                      <DetailList
-                                        items={detail.childWork.commitItems}
-                                        empty="None"
-                                      />
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-
                               {/* This period's activity */}
                               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t">
                                 <div>
@@ -402,6 +371,44 @@ export function TeamWeekSection({
   );
 }
 
+/**
+ * Contribution mix — how a person's period activity splits across the three
+ * kinds of work. Makes different roles comparable WITHOUT ranking them:
+ * managers show a coordination-dominant bar, coders a code-dominant one.
+ */
+function ContributionMixBar({ person }: { person: PersonWeek }) {
+  const coordination = person.issuesCreated;
+  const delivery = person.issuesClosed;
+  const code = person.commits + person.mrsMerged + person.mrsCreated;
+  const total = coordination + delivery + code;
+
+  if (total === 0) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+
+  const pct = (n: number) => Math.round((n / total) * 100);
+  const coordinationPct = pct(coordination);
+  const deliveryPct = pct(delivery);
+  const codePct = 100 - coordinationPct - deliveryPct;
+
+  let focus = "Mixed";
+  if (codePct >= 60) focus = "Code";
+  else if (coordinationPct >= 60) focus = "Coordination";
+  else if (deliveryPct >= 60) focus = "Delivery";
+
+  const tooltip = `Coordination ${coordinationPct}% (created) · Delivery ${deliveryPct}% (closed) · Code ${codePct}% (commits+MRs)`;
+
+  return (
+    <div className="min-w-[110px]" title={tooltip}>
+      <div className="flex h-2 w-full rounded-full overflow-hidden bg-muted">
+        <div className="bg-blue-500" style={{ width: `${coordinationPct}%` }} />
+        <div className="bg-orange-500" style={{ width: `${deliveryPct}%` }} />
+        <div className="bg-emerald-500" style={{ width: `${codePct}%` }} />
+      </div>
+      <span className="text-[10px] text-muted-foreground mt-0.5 block">{focus}</span>
+    </div>
+  );
+}
 function DetailList({ items, empty }: { items: ItemRef[]; empty: string }) {
   if (items.length === 0) {
     return <p className="text-sm text-muted-foreground">{empty}</p>;
@@ -414,6 +421,11 @@ function DetailList({ items, empty }: { items: ItemRef[]; empty: string }) {
             #{item.itemIid}
           </Badge>
           <span className="truncate">{item.itemTitle || "Untitled"}</span>
+          {item.projectName && (
+            <span className="text-[10px] text-muted-foreground shrink-0 truncate max-w-[100px]">
+              {item.projectName}
+            </span>
+          )}
           {item.itemUrl && (
             <a
               href={item.itemUrl}

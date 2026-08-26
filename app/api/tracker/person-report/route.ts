@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { userActivity, projects } from "@/db/schema";
-import { and, eq, gte, lte, asc, inArray, notInArray, sql } from "drizzle-orm";
+import { userActivity } from "@/db/schema";
+import { and, eq, gte, lte, asc } from "drizzle-orm";
 
 interface ActivityRow {
   activityType: string;
@@ -48,22 +48,14 @@ export async function GET(request: NextRequest) {
 
     const db = getDb();
 
-    // Scope to MAIN projects only by default (each config's mgmt_id) — never
-    // sum activity across child GitLab repos. `repo=<gitlab_project_id>`
-    // re-scopes to a single repo; childWork is then omitted since the whole
-    // report already IS that repo.
+    // Scope semantics:
+    // - `repo=<gitlab_project_id>` → that single repo (squad drill-down)
+    // - no repo param → ALL repos, matching team-week so expanded details
+    //   always match the table numbers
     const repoParam = searchParams.get("repo");
     const repoId = repoParam && !isNaN(parseInt(repoParam)) ? parseInt(repoParam) : null;
-    const projectRows = await db.select({ mgmtId: projects.mgmtId }).from(projects);
-    const mainProjectIds = projectRows
-      .map((p) => parseInt(p.mgmtId))
-      .filter((n) => !isNaN(n));
     const mainFilter =
-      repoId !== null
-        ? eq(userActivity.gitlabProjectId, repoId)
-        : mainProjectIds.length > 0
-          ? inArray(userActivity.gitlabProjectId, mainProjectIds)
-          : sql`0`;
+      repoId !== null ? eq(userActivity.gitlabProjectId, repoId) : undefined;
 
     const rows: ActivityRow[] = await db
       .select({
@@ -148,50 +140,6 @@ export async function GET(request: NextRequest) {
       events,
     }));
 
-    // ---- Child-repo work (separate from headline numbers) ----
-    // Activity in non-main GitLab projects. Deliberately NOT included in
-    // `summary` — surfaced as its own section in the person detail view.
-    let childWork: {
-      totalEvents: number;
-      closedIssues: Array<ReturnType<typeof toItem>>;
-      mergedMrs: Array<ReturnType<typeof toItem>>;
-      commitItems: Array<ReturnType<typeof toItem>>;
-    } = {
-      totalEvents: 0,
-      closedIssues: [],
-      mergedMrs: [],
-      commitItems: [],
-    };
-
-    if (repoId === null && mainProjectIds.length > 0) {
-      const childRows: ActivityRow[] = await db
-        .select({
-          activityType: userActivity.activityType,
-          itemIid: userActivity.itemIid,
-          itemTitle: userActivity.itemTitle,
-          itemUrl: userActivity.itemUrl,
-          projectName: userActivity.projectName,
-          occurredAt: userActivity.occurredAt,
-        })
-        .from(userActivity)
-        .where(
-          and(
-            eq(userActivity.userUsername, user),
-            gte(userActivity.occurredAt, from),
-            lte(userActivity.occurredAt, to),
-            notInArray(userActivity.gitlabProjectId, mainProjectIds)
-          )
-        )
-        .orderBy(asc(userActivity.occurredAt));
-
-      childWork = {
-        totalEvents: childRows.length,
-        closedIssues: childRows.filter((r) => r.activityType === "issue_closed").map(toItem),
-        mergedMrs: childRows.filter((r) => r.activityType === "mr_merged").map(toItem),
-        commitItems: childRows.filter((r) => r.activityType === "commit").map(toItem),
-      };
-    }
-
     return NextResponse.json({
       user: { username: user, name: displayName },
       range: { from: from.toISOString(), to: to.toISOString() },
@@ -204,7 +152,6 @@ export async function GET(request: NextRequest) {
       mergedMrs: byType("mr_merged"),
       commits: byType("commit"),
       dailyActivity,
-      childWork,
     });
   } catch (error) {
     console.error("Failed to fetch person report:", error);

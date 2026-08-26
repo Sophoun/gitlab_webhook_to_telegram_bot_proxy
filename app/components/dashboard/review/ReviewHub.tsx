@@ -23,7 +23,6 @@ interface PersonWeek {
   name: string;
   issuesCreated: number;
   issuesClosed: number;
-  comments: number;
   mrsCreated: number;
   mrsMerged: number;
   commits: number;
@@ -224,22 +223,39 @@ export function ReviewHub() {
       // Sheet 1: Team Activity (selected period) — full roster, including
       // members with no activity in the period
       const teamSheet = XLSX.utils.json_to_sheet(
-        people.map((p) => ({
-          Name: p.name,
-          Username: p.username,
-          Status: p.totalEvents > 0 ? "Active" : "No activity",
-          "Issues Created": p.issuesCreated,
-          "Issues Closed": p.issuesClosed,
-          "Progress Delivered (%)": p.progressDelivered ?? 0,
-          Comments: p.comments,
-          "Total Events": p.totalEvents,
-          WIP: wipMap[p.username] || 0,
-          "Open Tasks": openTasksByUsername.get(p.username) || 0,
-        }))
+        people.map((p) => {
+          const coordination = p.issuesCreated;
+          const delivery = p.issuesClosed;
+          const code = p.commits + p.mrsMerged + p.mrsCreated;
+          const total = coordination + delivery + code;
+          let focus = "No activity";
+          if (total > 0) {
+            const share = (n: number) => n / total;
+            if (share(code) >= 0.6) focus = "Code";
+            else if (share(coordination) >= 0.6) focus = "Coordination";
+            else if (share(delivery) >= 0.6) focus = "Delivery";
+            else focus = "Mixed";
+          }
+          return {
+            Name: p.name,
+            Username: p.username,
+            Status: p.totalEvents > 0 ? "Active" : "No activity",
+            Focus: focus,
+            "Issues Created": p.issuesCreated,
+            "Issues Closed": p.issuesClosed,
+            "MRs Merged": p.mrsMerged,
+            Commits: p.commits,
+            "Progress Delivered (%)": p.progressDelivered ?? 0,
+            "Total Events": p.totalEvents,
+            WIP: wipMap[p.username] || 0,
+            "Open Tasks": openTasksByUsername.get(p.username) || 0,
+          };
+        })
       );
       teamSheet["!cols"] = [
-        { wch: 22 }, { wch: 18 }, { wch: 14 }, { wch: 15 }, { wch: 14 },
-        { wch: 20 }, { wch: 12 }, { wch: 13 }, { wch: 8 }, { wch: 12 },
+        { wch: 22 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 15 }, { wch: 14 },
+        { wch: 12 }, { wch: 10 }, { wch: 20 }, { wch: 13 }, { wch: 8 },
+        { wch: 12 },
       ];
 
       // Sheet 2: Needs Attention
@@ -378,7 +394,7 @@ export function ReviewHub() {
           <p className="text-muted-foreground mt-1">
             {repoParam
               ? `Scoped to ${review?.facets.repos.find((r) => String(r.id) === repoParam)?.pathWithNamespace ?? "selected repo"}`
-              : "Team activity and issue tracking for the main project"}
+              : "Team activity across all repositories · issues from the main board"}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">

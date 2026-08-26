@@ -429,14 +429,14 @@ export async function POST(request: NextRequest) {
             });
 
             if (mr.merged_at) {
-              // Credit the person who actually merged, not the MR author
-              const merger = mr.merged_by ?? mr.author;
+              // Credit the MR to its AUTHOR — the person who wrote the code —
+              // not to whoever clicked merge (often a lead merging the team's work).
               activitiesToInsert.push({
                 projectId: config.id,
                 projectName: config.name,
                 gitlabProjectId: gitlabProject.id,
-                userName: merger.name,
-                userUsername: merger.username,
+                userName: mr.author.name,
+                userUsername: mr.author.username,
                 activityType: "mr_merged",
                 itemIid: mr.iid,
                 itemTitle: mr.title,
@@ -472,15 +472,18 @@ export async function POST(request: NextRequest) {
 
           // Build email/name -> GitLab username maps from project members so
           // commits are attributed to real users instead of email prefixes.
+          // Members with empty usernames are skipped — an empty mapping value
+          // would otherwise pass the ?? fallback and blank out attribution.
           const emailToUsername = new Map<string, string>();
           const nameToUsername = new Map<string, string>();
           try {
             const members = await client.getProjectMembers(gitlabProject.id);
             for (const m of members) {
+              if (!m.username) continue;
               if (m.email) emailToUsername.set(m.email.toLowerCase(), m.username);
               if (m.public_email)
                 emailToUsername.set(m.public_email.toLowerCase(), m.username);
-              nameToUsername.set(m.name.toLowerCase(), m.username);
+              if (m.name) nameToUsername.set(m.name.toLowerCase(), m.username);
             }
           } catch (err) {
             console.warn(
@@ -493,7 +496,7 @@ export async function POST(request: NextRequest) {
             const resolvedUsername =
               emailToUsername.get(email) ??
               nameToUsername.get(commit.author_name.toLowerCase()) ??
-              commit.author_email.split("@")[0];
+              (commit.author_email.split("@")[0] || commit.author_name);
 
             activitiesToInsert.push({
               projectId: config.id,

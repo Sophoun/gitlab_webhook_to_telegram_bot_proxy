@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { userActivity, projects, issueProgressHistory } from "@/db/schema";
-import { and, eq, gte, lte, inArray, sql } from "drizzle-orm";
+import { userActivity, issueProgressHistory } from "@/db/schema";
+import { and, eq, gte, lte, sql } from "drizzle-orm";
 import { computeProgressDelivered } from "@/lib/progress-parser";
 
 export async function GET(request: NextRequest) {
@@ -30,21 +30,14 @@ export async function GET(request: NextRequest) {
 
     const db = getDb();
 
-    // Main projects only (each config's mgmt_id)
-    const projectRows = await db.select({ mgmtId: projects.mgmtId }).from(projects);
-    const mainProjectIds = projectRows
-      .map((p) => parseInt(p.mgmtId))
-      .filter((n) => !isNaN(n));
-    // Main projects only by default; `repo=<gitlab_project_id>` re-scopes to
-    // a single repo (e.g. a child project with its own team).
+    // Scope semantics:
+    // - `repo=<gitlab_project_id>` → that single repo (squad drill-down)
+    // - no repo param → ALL repos, so the main view shows each person's total
+    //   work (most coding happens in child repos, not the management repo)
     const repoParam = searchParams.get("repo");
     const repoId = repoParam && !isNaN(parseInt(repoParam)) ? parseInt(repoParam) : null;
     const mainFilter =
-      repoId !== null
-        ? eq(userActivity.gitlabProjectId, repoId)
-        : mainProjectIds.length > 0
-          ? inArray(userActivity.gitlabProjectId, mainProjectIds)
-          : sql`0`;
+      repoId !== null ? eq(userActivity.gitlabProjectId, repoId) : undefined;
 
     const rows = await db
       .select({
@@ -60,7 +53,6 @@ export async function GET(request: NextRequest) {
           mainFilter
         )
       );
-
     // Aggregate per person
     const map = new Map<
       string,
@@ -69,7 +61,6 @@ export async function GET(request: NextRequest) {
         name: string;
         issuesCreated: number;
         issuesClosed: number;
-        comments: number;
         mrsCreated: number;
         mrsMerged: number;
         commits: number;
@@ -85,7 +76,6 @@ export async function GET(request: NextRequest) {
           name: r.userName,
           issuesCreated: 0,
           issuesClosed: 0,
-          comments: 0,
           mrsCreated: 0,
           mrsMerged: 0,
           commits: 0,
@@ -97,10 +87,6 @@ export async function GET(request: NextRequest) {
           break;
         case "issue_closed":
           p.issuesClosed++;
-          break;
-        case "issue_comment":
-        case "mr_comment":
-          p.comments++;
           break;
         case "mr_created":
           p.mrsCreated++;
@@ -123,13 +109,16 @@ export async function GET(request: NextRequest) {
     // ---- Include EVERYONE ever seen in this scope, even with no activity ----
     // Members without events in the period still appear (zero-filled) so the
     // roster is complete for performance review.
+    // GROUP BY username (not DISTINCT on the pair): the same person can appear
+    // under name variants across repos, which would produce duplicate keys.
     const allUsers = await db
-      .selectDistinct({
+      .select({
         username: userActivity.userUsername,
-        name: userActivity.userName,
+        name: sql<string>`max(${userActivity.userName})`,
       })
       .from(userActivity)
-      .where(mainFilter);
+      .where(mainFilter)
+      .groupBy(userActivity.userUsername);
 
     const known = new Set(people.map((p) => p.username));
     const inactive = allUsers
@@ -139,24 +128,27 @@ export async function GET(request: NextRequest) {
         name: u.name,
         issuesCreated: 0,
         issuesClosed: 0,
-        comments: 0,
         mrsCreated: 0,
         mrsMerged: 0,
         commits: 0,
         totalEvents: 0,
       }));
-    const everyone = [...people, ...inactive];
+    // Defensive: guarantee unique usernames in the response (React keys and
+    // per-person lookups depend on it)
+    const seen = new Set<string>();
+    const everyone: typeof people = [];
+    for (const p of [...people, ...inactive]) {
+      if (seen.has(p.username)) continue;
+      seen.add(p.username);
+      everyone.push(p);
+    }
 
     // ---- Progress delivered per person ----
     // Full history is fetched so deltas are computed against prior values;
     // crediting is limited to the selected period (see computeProgressDelivered).
     // Scoped to the same repo selection as the activity query.
     const historyFilter =
-      repoId !== null
-        ? eq(issueProgressHistory.gitlabProjectId, repoId)
-        : mainProjectIds.length > 0
-          ? inArray(issueProgressHistory.gitlabProjectId, mainProjectIds)
-          : sql`0`;
+      repoId !== null ? eq(issueProgressHistory.gitlabProjectId, repoId) : undefined;
     const historyRows = await db
       .select({
         gitlabProjectId: issueProgressHistory.gitlabProjectId,
