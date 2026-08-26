@@ -5,7 +5,6 @@ import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ReviewHeader } from "./ReviewHeader";
 import { TeamWeekSection } from "./TeamWeekSection";
-import { TrendCharts } from "./TrendCharts";
 import { WIP_LIMIT, type ReviewData } from "./types";
 import { Download, ChevronLeft, ChevronRight } from "lucide-react";
 
@@ -276,8 +275,6 @@ export function TeamPage() {
           Excel
         </Button>
       </ReviewHeader>
-
-      <TrendCharts repoParam={repoParam} />
 
       <TeamWeekSection
         people={people}

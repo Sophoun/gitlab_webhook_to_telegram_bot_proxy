@@ -4,6 +4,7 @@ import { useState, useMemo, Fragment } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -74,6 +75,7 @@ interface PersonReport {
   commentedOn: ItemRef[];
   mergedMrs: ItemRef[];
   openTasks: OpenTask[];
+  authoredOpenIssues: OpenTask[];
 }
 
 interface TeamWeekSectionProps {
@@ -196,6 +198,7 @@ export function TeamWeekSection({
   const [detailLoading, setDetailLoading] = useState(false);
   const [sortBy, setSortBy] = useState<SortField>("totalEvents");
   const [sortAsc, setSortAsc] = useState(false);
+  const [search, setSearch] = useState("");
 
   const sorted = useMemo(() => {
     return [...people].sort((a, b) => {
@@ -226,6 +229,16 @@ export function TeamWeekSection({
       }
     });
   }, [people, sortBy, sortAsc]);
+
+  const filtered = useMemo(() => {
+    if (!search) return sorted;
+    const q = search.toLowerCase();
+    return sorted.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.username.toLowerCase().includes(q)
+    );
+  }, [sorted, search]);
 
   const handleSort = (field: SortField) => {
     if (sortBy === field) {
@@ -316,8 +329,17 @@ export function TeamWeekSection({
             </p>
           </div>
         ) : (
-          <div className="border rounded-lg overflow-x-auto">
-            <Table>
+          <>
+            <div className="pb-3">
+              <Input
+                placeholder="Search by name or username…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="max-w-xs"
+              />
+            </div>
+            <div className="border rounded-lg overflow-x-auto">
+              <Table>
               <TableHeader>
                 <TableRow>
                   <SortHead field="name" currentField={sortBy} currentAsc={sortAsc} onSort={handleSort}>
@@ -379,7 +401,7 @@ export function TeamWeekSection({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {sorted.map((p) => (
+                {filtered.map((p) => (
                   <Fragment key={p.username}>
                     <TableRow
                       className={`cursor-pointer hover:bg-muted/50 ${expanded === p.username ? "bg-muted/50" : ""}`}
@@ -535,6 +557,70 @@ export function TeamWeekSection({
                                 )}
                               </div>
 
+                              {/* Authored open issues (not assigned to this person) */}
+                              {(detail.authoredOpenIssues || []).length > 0 && (() => {
+                                const authored = detail.authoredOpenIssues;
+                                const authGroups: Array<{ stage: string; items: typeof authored }> = [];
+                                for (const stage of WORKFLOW_STAGES) {
+                                  const items = authored.filter((t) => t.boardStage === stage);
+                                  if (items.length > 0) authGroups.push({ stage, items });
+                                }
+                                const authMatched = new Set(authGroups.flatMap((g) => g.items.map((t) => `${t.gitlabProjectId}-${t.issueIid}`)));
+                                const authUnmatched = authored.filter((t) => !authMatched.has(`${t.gitlabProjectId}-${t.issueIid}`));
+                                if (authUnmatched.length > 0) authGroups.push({ stage: "Opened", items: authUnmatched });
+
+                                return (
+                                  <div className="pt-2 border-t">
+                                    <p className="text-xs font-medium text-muted-foreground mb-2">
+                                      Authored open issues ({authored.length})
+                                      <span className="ml-1 text-muted-foreground/60">· created but not assigned to you</span>
+                                    </p>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                                      {authGroups.map((group) => (
+                                        <div
+                                          key={`auth-${group.stage}`}
+                                          className={`rounded-lg border p-2.5 ${
+                                            STAGE_BADGE_CLASS[group.stage] || "border-border"
+                                          }`}
+                                        >
+                                          <p className="text-xs font-semibold mb-1.5">
+                                            {group.stage} ({group.items.length})
+                                          </p>
+                                          <div className="space-y-1">
+                                            {group.items.map((item) => (
+                                              <div
+                                                key={`auth-${item.gitlabProjectId}-${item.issueIid}`}
+                                                className="flex items-center gap-1.5 text-sm min-w-0"
+                                              >
+                                                <span className="text-muted-foreground shrink-0 text-xs">
+                                                  #{item.issueIid}
+                                                </span>
+                                                <span className="truncate">{item.issueTitle}</span>
+                                                {item.projectName && (
+                                                  <span className="text-[10px] text-muted-foreground shrink-0 truncate max-w-[100px]">
+                                                    {item.projectName}
+                                                  </span>
+                                                )}
+                                                {item.issueUrl && (
+                                                  <a
+                                                    href={item.issueUrl}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="text-muted-foreground hover:text-foreground shrink-0"
+                                                  >
+                                                    <ExternalLink className="h-3 w-3" />
+                                                  </a>
+                                                )}
+                                              </div>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                );
+                              })()}
+
                               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t">
                                 <div>
                                   <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
@@ -566,8 +652,9 @@ export function TeamWeekSection({
                   </Fragment>
                 ))}
               </TableBody>
-            </Table>
-          </div>
+              </Table>
+            </div>
+          </>
         )}
       </CardContent>
     </Card>

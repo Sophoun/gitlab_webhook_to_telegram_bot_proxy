@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { userActivity, issueAnalytics, gitlabRepos } from "@/db/schema";
-import { and, eq, gte, lte, asc, like } from "drizzle-orm";
+import { and, eq, gte, lte, asc, like, or } from "drizzle-orm";
 import { parseBoardLabels } from "@/app/components/dashboard/review/types";
 
 interface ActivityRow {
@@ -163,35 +163,53 @@ export async function GET(request: NextRequest) {
       .from(issueAnalytics)
       .where(
         and(
-          // Raw GitLab state value — "opened", not "open"
           eq(issueAnalytics.state, "opened"),
-          // Only fetch rows where this person is an assignee — the JS
-          // filter below does exact comma-token matching.
-          like(issueAnalytics.assigneeUsernames, `%${user.toLowerCase()}%`)
+          or(
+            eq(issueAnalytics.authorUsername, user.toLowerCase()),
+            like(issueAnalytics.assigneeUsernames, `%${user.toLowerCase()}%`)
+          )
         )
       );
 
-    const openTasks = openTaskRows
-      .filter((r) => {
-        // Open tasks are owned by the ASSIGNEE (who does the work), not
-        // the author (who created it). Same logic as team-week count.
-        const assignees = (r.assigneeUsernames || "").split(",").map((a) => a.trim());
-        return assignees.includes(user.toLowerCase());
-      })
-      .map((r) => ({
+    const openTasks: Array<{
+      gitlabProjectId: number;
+      issueIid: number;
+      issueTitle: string | null;
+      issueUrl: string | null;
+      projectName: string;
+      boardStage: string;
+      isAuthor: boolean;
+      isAssignee: boolean;
+    }> = [];
+    const authoredOpenIssues: Array<{
+      gitlabProjectId: number;
+      issueIid: number;
+      issueTitle: string | null;
+      issueUrl: string | null;
+      projectName: string;
+      boardStage: string;
+    }> = [];
+
+    for (const r of openTaskRows) {
+      const assignees = (r.assigneeUsernames || "").split(",").map((a) => a.trim());
+      const isAssignee = assignees.includes(user.toLowerCase());
+      const isAuthor = r.authorUsername === user.toLowerCase();
+      const item = {
         gitlabProjectId: r.gitlabProjectId,
         issueIid: r.issueIid,
         issueTitle: r.issueTitle,
         issueUrl: r.issueUrl,
         projectName: repoNames.get(r.gitlabProjectId) ?? String(r.gitlabProjectId),
         boardStage: parseBoardLabels(r.labels, "open").boardStage,
-        isAuthor: r.authorUsername === user.toLowerCase(),
-        isAssignee: (r.assigneeUsernames || "")
-          .split(",")
-          .map((a) => a.trim())
-          .includes(user.toLowerCase()),
-      }))
-      .sort((a, b) => a.issueIid - b.issueIid);
+      };
+      if (isAssignee) {
+        openTasks.push({ ...item, isAuthor, isAssignee });
+      } else if (isAuthor) {
+        authoredOpenIssues.push(item);
+      }
+    }
+    openTasks.sort((a, b) => a.issueIid - b.issueIid);
+    authoredOpenIssues.sort((a, b) => a.issueIid - b.issueIid);
 
     return NextResponse.json({
       user: { username: user, name: displayName },
@@ -205,6 +223,7 @@ export async function GET(request: NextRequest) {
       mergedMrs: byType("mr_merged"),
       commits: byType("commit"),
       openTasks,
+      authoredOpenIssues,
       dailyActivity,
     });
   } catch (error) {
