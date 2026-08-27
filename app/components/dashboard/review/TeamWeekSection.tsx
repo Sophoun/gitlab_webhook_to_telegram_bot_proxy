@@ -30,7 +30,7 @@ import {
   ArrowDown,
   Clock,
 } from "lucide-react";
-import { WORKFLOW_STAGES } from "./types";
+import { WORKFLOW_STAGES, STAGE_BADGE_CLASS, FALLBACK_STAGES } from "./types";
 
 interface PersonWeek {
   username: string;
@@ -49,6 +49,9 @@ interface PersonWeek {
   prevMrsMerged: number;
   prevIssuesClosed: number;
   prevTotalEvents: number;
+  performanceScore: number;
+  performanceGrade: "A" | "B" | "C" | "D" | "F";
+  performanceRole: "developer" | "coordinator" | "mixed";
 }
 
 interface ItemRef {
@@ -89,16 +92,6 @@ interface TeamWeekSectionProps {
   repo?: string | null;
 }
 
-const STAGE_BADGE_CLASS: Record<string, string> = {
-  "In Progress": "border-blue-500/50 text-blue-600",
-  "Peer Review": "border-yellow-500/50 text-yellow-600",
-  "Testing/QA": "border-orange-500/50 text-orange-600",
-  Completed: "border-lime-600/50 text-lime-700",
-  Opened: "border-gray-400/50 text-gray-500",
-} as const;
-
-const FALLBACK_STAGES = ["Opened", "Closed"];
-
 type SortField =
   | "name"
   | "openTaskCount"
@@ -106,7 +99,8 @@ type SortField =
   | "mrsMerged"
   | "commits"
   | "totalEvents"
-  | "lastActivityAt";
+  | "lastActivityAt"
+  | "performanceScore";
 
 function DeltaIndicator({ current, previous }: { current: number; previous: number }) {
   if (previous === 0 && current === 0) return null;
@@ -183,6 +177,49 @@ function SortHead({
   );
 }
 
+const GRADE_COLORS: Record<string, string> = {
+  A: "bg-emerald-100 text-emerald-800 border-emerald-300",
+  B: "bg-blue-100 text-blue-800 border-blue-300",
+  C: "bg-yellow-100 text-yellow-800 border-yellow-300",
+  D: "bg-orange-100 text-orange-800 border-orange-300",
+  F: "bg-red-100 text-red-800 border-red-300",
+};
+
+const ROLE_LABELS: Record<string, string> = {
+  developer: "DEV",
+  coordinator: "BIZ",
+  mixed: "MIX",
+};
+
+const ROLE_COLORS: Record<string, string> = {
+  developer: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  coordinator: "bg-blue-50 text-blue-700 border-blue-200",
+  mixed: "bg-gray-50 text-gray-600 border-gray-200",
+};
+
+function ScoreCell({ person }: { person: PersonWeek }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span
+        className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border text-sm font-bold ${
+          GRADE_COLORS[person.performanceGrade] || "bg-gray-100 text-gray-600 border-gray-200"
+        }`}
+        title={`Score: ${person.performanceScore}/100`}
+      >
+        {person.performanceGrade}
+      </span>
+      <span className="text-xs text-muted-foreground">{person.performanceScore}</span>
+      <span
+        className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium ${
+          ROLE_COLORS[person.performanceRole] || "bg-gray-50 text-gray-600 border-gray-200"
+        }`}
+      >
+        {ROLE_LABELS[person.performanceRole] || person.performanceRole}
+      </span>
+    </div>
+  );
+}
+
 export function TeamWeekSection({
   people,
   loading,
@@ -196,6 +233,7 @@ export function TeamWeekSection({
   const [expanded, setExpanded] = useState<string | null>(null);
   const [detail, setDetail] = useState<PersonReport | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState(false);
   const [sortBy, setSortBy] = useState<SortField>("totalEvents");
   const [sortAsc, setSortAsc] = useState(false);
   const [search, setSearch] = useState("");
@@ -223,6 +261,10 @@ export function TeamWeekSection({
           return sortAsc ? a.mrsMerged - b.mrsMerged : b.mrsMerged - a.mrsMerged;
         case "commits":
           return sortAsc ? a.commits - b.commits : b.commits - a.commits;
+        case "performanceScore":
+          return sortAsc
+            ? a.performanceScore - b.performanceScore
+            : b.performanceScore - a.performanceScore;
         case "totalEvents":
         default:
           return sortAsc ? a.totalEvents - b.totalEvents : b.totalEvents - a.totalEvents;
@@ -253,10 +295,12 @@ export function TeamWeekSection({
     if (expanded === username) {
       setExpanded(null);
       setDetail(null);
+      setDetailError(false);
       return;
     }
     setExpanded(username);
     setDetail(null);
+    setDetailError(false);
     setDetailLoading(true);
     try {
       const repoQs = repo ? `&repo=${repo}` : "";
@@ -264,9 +308,14 @@ export function TeamWeekSection({
         `/api/tracker/person-report?user=${encodeURIComponent(username)}&from=${from}&to=${to}${repoQs}`
       );
       const data = await res.json();
-      if (!data.error) setDetail(data);
+      if (data.error) {
+        setDetailError(true);
+      } else {
+        setDetail(data);
+      }
     } catch (error) {
       console.error("Failed to fetch person detail:", error);
+      setDetailError(true);
     } finally {
       setDetailLoading(false);
     }
@@ -345,6 +394,14 @@ export function TeamWeekSection({
                   <SortHead field="name" currentField={sortBy} currentAsc={sortAsc} onSort={handleSort}>
                     Person
                   </SortHead>
+                  <SortHead
+                    field="performanceScore"
+                    currentField={sortBy}
+                    currentAsc={sortAsc}
+                    onSort={handleSort}
+                  >
+                    Score
+                  </SortHead>
                   <TableHead>
                     <span className="inline-flex items-center gap-1">
                       <Users2 className="h-3 w-3 text-muted-foreground" /> Contribution
@@ -406,6 +463,15 @@ export function TeamWeekSection({
                     <TableRow
                       className={`cursor-pointer hover:bg-muted/50 ${expanded === p.username ? "bg-muted/50" : ""}`}
                       onClick={() => togglePerson(p.username)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          togglePerson(p.username);
+                        }
+                      }}
+                      tabIndex={0}
+                      role="button"
+                      aria-expanded={expanded === p.username}
                     >
                       <TableCell>
                         <div className="flex items-center gap-2">
@@ -454,6 +520,9 @@ export function TeamWeekSection({
                         </div>
                       </TableCell>
                       <TableCell>
+                        <ScoreCell person={p} />
+                      </TableCell>
+                      <TableCell>
                         <ContributionMixBar person={p} />
                       </TableCell>
                       <TableCell className="text-right font-medium">
@@ -494,9 +563,19 @@ export function TeamWeekSection({
 
                     {expanded === p.username && (
                       <TableRow>
-                        <TableCell colSpan={8} className="bg-muted/30 p-4">
+                        <TableCell colSpan={9} className="bg-muted/30 p-4">
                           {detailLoading ? (
                             <p className="text-sm text-muted-foreground py-2">Loading details...</p>
+                          ) : detailError ? (
+                            <div className="text-sm text-destructive py-2">
+                              <p>Failed to load details. Please try again.</p>
+                              <button
+                                onClick={() => togglePerson(p.username)}
+                                className="underline text-xs mt-1 hover:text-foreground"
+                              >
+                                Retry
+                              </button>
+                            </div>
                           ) : !detail ? (
                             <p className="text-sm text-muted-foreground py-2">
                               No details available
@@ -670,7 +749,7 @@ function ContributionMixBar({ person }: { person: PersonWeek }) {
   if (total === 0) {
     if (person.openTaskCount > 0) {
       return (
-        <div className="min-w-[110px]">
+        <div className="min-w-[110px]" title={`${person.openTaskCount} tasks assigned — no activity in this period`}>
           <div className="flex h-2 w-full rounded-full overflow-hidden bg-muted">
             <div className="bg-gray-300 w-full" />
           </div>

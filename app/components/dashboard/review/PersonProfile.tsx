@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, ExternalLink, ListTodo, GitMerge, Code2, Gauge, CalendarDays } from "lucide-react";
-import { WORKFLOW_STAGES } from "./types";
+import { ArrowLeft, ExternalLink, ListTodo, GitMerge, Code2, Gauge, CalendarDays, CheckCircle2 } from "lucide-react";
+import { WORKFLOW_STAGES, STAGE_BADGE_CLASS } from "./types";
 
 interface OpenTask {
   gitlabProjectId: number;
@@ -40,6 +40,7 @@ interface PersonReportData {
   createdIssues: ItemRef[];
   commentedOn: ItemRef[];
   openTasks: OpenTask[];
+  authoredOpenIssues: OpenTask[];
   dailyActivity: Array<{ date: string; events: number }>;
 }
 
@@ -47,13 +48,6 @@ interface TrendData {
   weeks: Array<{ weekStart: string; commits: number; mrsMerged: number }>;
   people: Array<{ username: string; name: string; commits: number[]; mrsMerged: number[] }>;
 }
-
-const STAGE_BADGE_CLASS: Record<string, string> = {
-  "In Progress": "border-blue-500/50 text-blue-600",
-  "Peer Review": "border-yellow-500/50 text-yellow-600",
-  "Testing/QA": "border-orange-500/50 text-orange-600",
-  Completed: "border-lime-600/50 text-lime-700",
-};
 
 /** Lookback window for the activity summary (days) */
 const PERIOD_DAYS = 30;
@@ -88,11 +82,17 @@ export function PersonProfile({ username }: { username: string }) {
       ]);
       const reportData = await reportRes.json();
       const trendData = await trendRes.json();
-      setReport(reportData.error ? null : reportData);
-      setTrend(trendData.error ? null : trendData);
+      // Only set report if the report fetch succeeded (trend failure is non-fatal)
+      if (!reportRes.ok || reportData.error) {
+        setReport(null);
+      } else {
+        setReport(reportData);
+      }
+      setTrend(trendRes.ok && !trendData.error ? trendData : null);
     } catch (error) {
       console.error("Failed to fetch person profile:", error);
       setReport(null);
+      setTrend(null);
     } finally {
       setLoading(false);
     }
@@ -196,7 +196,7 @@ export function PersonProfile({ username }: { username: string }) {
         <Card>
           <CardHeader className="pb-2">
             <CardDescription className="flex items-center gap-1.5">
-              <CheckCircleIcon /> Issues Closed
+              <CheckCircle2 className="h-3.5 w-3.5 text-green-600" /> Issues Closed
             </CardDescription>
             <CardTitle className="text-3xl text-green-600">{report.summary.issuesClosed}</CardTitle>
           </CardHeader>
@@ -287,6 +287,66 @@ export function PersonProfile({ username }: { username: string }) {
         </CardContent>
       </Card>
 
+      {/* Authored open issues (not assigned to this person) */}
+      {(report.authoredOpenIssues || []).length > 0 && (() => {
+        const authored = report.authoredOpenIssues;
+        const authGroups: Array<{ stage: string; items: typeof authored }> = [];
+        for (const stage of WORKFLOW_STAGES) {
+          const items = authored.filter((t) => t.boardStage === stage);
+          if (items.length > 0) authGroups.push({ stage, items });
+        }
+        const authMatched = new Set(authGroups.flatMap((g) => g.items.map((t) => `${t.gitlabProjectId}-${t.issueIid}`)));
+        const authUnmatched = authored.filter((t) => !authMatched.has(`${t.gitlabProjectId}-${t.issueIid}`));
+        if (authUnmatched.length > 0) authGroups.push({ stage: "Opened", items: authUnmatched });
+
+        return (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Authored Open Issues ({authored.length})</CardTitle>
+              <CardDescription>Created but not assigned to you · grouped by board stage</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                {authGroups.map((group) => (
+                  <div
+                    key={`auth-${group.stage}`}
+                    className={`rounded-lg border p-2.5 ${STAGE_BADGE_CLASS[group.stage] || "border-border"}`}
+                  >
+                    <p className="text-xs font-semibold mb-1.5">
+                      {group.stage} ({group.items.length})
+                    </p>
+                    <div className="space-y-1">
+                      {group.items.map((t) => (
+                        <div
+                          key={`auth-${t.gitlabProjectId}-${t.issueIid}`}
+                          className="flex items-center gap-1.5 text-sm min-w-0"
+                        >
+                          <span className="text-muted-foreground shrink-0 text-xs">#{t.issueIid}</span>
+                          <span className="truncate">{t.issueTitle}</span>
+                          <span className="text-[10px] text-muted-foreground shrink-0 truncate max-w-[100px]">
+                            {t.projectName}
+                          </span>
+                          {t.issueUrl && (
+                            <a
+                              href={t.issueUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-muted-foreground hover:text-foreground shrink-0"
+                            >
+                              <ExternalLink className="h-3 w-3" />
+                            </a>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
+
       {/* Daily activity + period lists */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <Card>
@@ -330,10 +390,6 @@ export function PersonProfile({ username }: { username: string }) {
       </div>
     </div>
   );
-}
-
-function CheckCircleIcon() {
-  return <span className="inline-block w-3.5 h-3.5 rounded-full border-2 border-green-600" />;
 }
 
 function RefList({ items, empty }: { items: ItemRef[]; empty: string }) {

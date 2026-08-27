@@ -78,6 +78,18 @@ export function getStageProgress(boardStage: string): number | null {
 
 export const WIP_LIMIT = 2;
 
+/** CSS classes for stage badge borders + text */
+export const STAGE_BADGE_CLASS: Record<string, string> = {
+  "In Progress": "border-blue-500/50 text-blue-600",
+  "Peer Review": "border-yellow-500/50 text-yellow-600",
+  "Testing/QA": "border-orange-500/50 text-orange-600",
+  Completed: "border-lime-600/50 text-lime-700",
+  Opened: "border-gray-400/50 text-gray-500",
+} as const;
+
+/** Fallback stages for issues without workflow labels */
+export const FALLBACK_STAGES = ["Opened", "Closed"];
+
 const TEAM_LABELS = ["Business", "Android", "iOS", "Backend", "DevOps"];
 const TYPE_LABELS = ["Feature", "Bug", "Tech Debt", "Research", "Enhancement"];
 

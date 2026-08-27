@@ -115,6 +115,16 @@ export async function GET(request: NextRequest) {
 
     const byType = (type: string) => rows.filter((r) => r.activityType === type).map(toItem);
 
+    // Closed issues first, so we can deduplicate Created against them
+    const closedIssues = byType("issue_closed");
+
+    // Created issues: exclude any that also appear in Closed (same project+iid)
+    // so issues the person both created AND closed only show under "Closed"
+    const closedSet = new Set(closedIssues.map((i) => `${i.projectName}-${i.itemIid}`));
+    const createdIssues = byType("issue_created").filter(
+      (i) => !closedSet.has(`${i.projectName}-${i.itemIid}`)
+    );
+
     // Commented-on: dedupe by project+iid across issue & MR comments
     const seenComments = new Set<string>();
     const commentedOn = rows
@@ -215,8 +225,8 @@ export async function GET(request: NextRequest) {
       user: { username: user, name: displayName },
       range: { from: from.toISOString(), to: to.toISOString() },
       summary,
-      createdIssues: byType("issue_created"),
-      closedIssues: byType("issue_closed"),
+      createdIssues,
+      closedIssues,
       reopenedIssues: byType("issue_reopened"),
       commentedOn,
       createdMrs: byType("mr_created"),

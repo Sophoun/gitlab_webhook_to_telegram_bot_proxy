@@ -31,6 +31,10 @@ interface PersonWeek {
   prevMrsMerged: number;
   prevIssuesClosed: number;
   prevTotalEvents: number;
+  /** Performance scoring */
+  performanceScore: number;
+  performanceGrade: "A" | "B" | "C" | "D" | "F";
+  performanceRole: "developer" | "coordinator" | "mixed";
 }
 
 type PeriodType = "day" | "week" | "month" | "custom";

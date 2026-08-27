@@ -3,7 +3,8 @@ import { getDb } from "@/lib/db";
 import { userActivity, issueAnalytics, issueProgressHistory } from "@/db/schema";
 import { and, eq, gte, lte, sql } from "drizzle-orm";
 import { computeProgressDelivered } from "@/lib/progress-parser";
-import { parseBoardLabels, WORKFLOW_STAGES } from "@/app/components/dashboard/review/types";
+import { parseBoardLabels, WORKFLOW_STAGES, FALLBACK_STAGES } from "@/app/components/dashboard/review/types";
+import { calculatePerformanceScore } from "@/lib/performance-score";
 
 type PeriodType = "day" | "week" | "month" | "custom";
 
@@ -261,9 +262,6 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Fallback stages for issues without workflow labels (shown at bottom)
-    const FALLBACK_STAGES = ["Opened", "Closed"];
-
     const result = peopleWithDeltas
       .map((p) => {
         const byStage = openTasksByStage.get(p.username) || {};
@@ -281,7 +279,25 @@ export async function GET(request: NextRequest) {
         };
       })
       // Only show people with activity in the period OR open tasks assigned
-      .filter((p) => p.totalEvents > 0 || p.openTaskCount > 0);
+      .filter((p) => p.totalEvents > 0 || p.openTaskCount > 0)
+      .map((p) => {
+        const perf = calculatePerformanceScore({
+          issuesCreated: p.issuesCreated,
+          issuesClosed: p.issuesClosed,
+          mrsCreated: p.mrsCreated,
+          mrsMerged: p.mrsMerged,
+          commits: p.commits,
+          totalEvents: p.totalEvents,
+          progressDelivered: p.progressDelivered,
+          openTaskCount: p.openTaskCount,
+        });
+        return {
+          ...p,
+          performanceScore: perf.score,
+          performanceGrade: perf.grade,
+          performanceRole: perf.role,
+        };
+      });
 
     // Fill in all-time lastActivityAt for people with no period activity
     const needsLastActive = result.filter((p) => !p.lastActivityAt);

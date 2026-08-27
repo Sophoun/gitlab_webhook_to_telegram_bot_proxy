@@ -143,6 +143,11 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
           const bv = b.timeToCloseHours ?? Number.MAX_SAFE_INTEGER;
           return (av - bv) * dir;
         }
+        case "timeToFirstResponseHours": {
+          const av = a.timeToFirstResponseHours ?? Number.MAX_SAFE_INTEGER;
+          const bv = b.timeToFirstResponseHours ?? Number.MAX_SAFE_INTEGER;
+          return (av - bv) * dir;
+        }
         case "commentCount":
           return ((a.commentCount || 0) - (b.commentCount || 0)) * dir;
         case "issueTitle":
@@ -342,6 +347,15 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
                   key={issue.id}
                   className="cursor-pointer hover:bg-muted/50"
                   onClick={() => onSelectIssue(issue)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      onSelectIssue(issue);
+                    }
+                  }}
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`Issue #${issue.issueIid}: ${issue.issueTitle || "Untitled"}, ${issue.state}, ${issue.boardStage}`}
                 >
                   <TableCell>
                     <div className="flex items-center gap-2 max-w-[260px]">
