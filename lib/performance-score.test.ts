@@ -42,6 +42,12 @@ describe("detectRole", () => {
     const m = makeMetrics();
     expect(detectRole(m)).toBe("mixed");
   });
+
+  it("detects developer when many open tasks dominate period activity", () => {
+    // Scenario: 18 open tasks but only 5 events in period
+    const m = makeMetrics({ openTaskCount: 18, issuesCreated: 3, mrsCreated: 1, mrsMerged: 1 });
+    expect(detectRole(m)).toBe("developer");
+  });
 });
 
 describe("calculatePerformanceScore", () => {
@@ -78,7 +84,7 @@ describe("calculatePerformanceScore", () => {
       issuesClosed: 20,
       totalComments: 25,
       progressDelivered: 30,
-      openTaskCount: 5,
+      openTaskCount: 0, // no open tasks = pure coordinator
       totalEvents: 55,
     });
     const r = calculatePerformanceScore(m);

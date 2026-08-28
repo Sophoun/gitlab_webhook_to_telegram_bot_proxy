@@ -65,9 +65,18 @@ function coordinationPct(p: PersonMetrics): number {
 export function detectRole(p: PersonMetrics): PerformanceRole {
   const code = codePct(p);
   const coord = coordinationPct(p);
-  // Delivery-only is a subset of coordinator (closing work you didn't create)
-  // so we check it separately but don't give it its own role.
+
+  // If someone has many open tasks assigned, they're likely doing the work
+  // (developer), not just managing it. Open tasks are a strong signal of
+  // developer intent even when period activity is low or coordination-heavy.
+  const hasManyOpenTasks = p.openTaskCount >= 5;
+  const activityCount = p.issuesCreated + p.issuesClosed + p.commits + p.mrsMerged + p.mrsCreated;
+  // If open tasks vastly outnumber period activity, this person is likely a
+  // developer who is between sprints or whose work isn't fully captured yet
+  const openTasksDominant = hasManyOpenTasks && p.openTaskCount > activityCount * 3;
+
   if (code >= 60) return "developer";
+  if (openTasksDominant) return "developer";
   if (coord >= 60) return "coordinator";
   return "mixed";
 }

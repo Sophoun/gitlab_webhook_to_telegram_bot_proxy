@@ -1,8 +1,8 @@
 import type { ReviewIssue } from "./types";
 
 export const ATTENTION_THRESHOLDS = {
-  stuckDevDays: 7,
-  refinementDays: 7,
+  stuckDevDays: 14,
+  refinementDays: 14,
   readyDays: 5,
   reviewDays: 3,
   qaDays: 5,
