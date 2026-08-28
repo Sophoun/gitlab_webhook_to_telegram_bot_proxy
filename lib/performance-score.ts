@@ -54,27 +54,22 @@ export interface PerformanceResult {
 }
 
 // ---------------------------------------------------------------------------
-// Role detection — based on activity patterns, not creation
+// Role detection — based on code output and issue workflow involvement
 // ---------------------------------------------------------------------------
 
 export function detectRole(p: PersonMetrics): PerformanceRole {
   const hasCodeOutput = p.commits > 0 || p.mrsMerged > 0 || p.mrsCreated > 0;
-  const hasDelivery = p.issuesClosed > 0 || p.progressDelivered > 0;
-  const hasManyOpenTasks = p.openTaskCount >= 5;
-  const activityCount =
-    p.issuesCreated + p.issuesClosed + p.commits + p.mrsMerged + p.mrsCreated;
-  const openTasksDominant = hasManyOpenTasks && p.openTaskCount > activityCount * 3;
+  const createsIssues = p.issuesCreated > 0;
+  const movesIssues = p.issuesClosed > 0 || p.progressDelivered > 0;
 
-  // Developer: has code output, OR has many assigned tasks, OR closes more than creates
+  // Mixed: writes code AND creates issues AND moves them through the workflow
+  if (hasCodeOutput && createsIssues && movesIssues) return "mixed";
+
+  // Developer: writes code (commits / MRs)
   if (hasCodeOutput) return "developer";
-  if (openTasksDominant) return "developer";
-  if (hasDelivery && p.issuesClosed > p.issuesCreated) return "developer";
 
-  // Coordinator: creates issues but doesn't code, and creates more than they close
-  if (p.issuesCreated > 0 && !hasCodeOutput && p.issuesCreated > p.issuesClosed) return "coordinator";
-
-  // Mixed: has some of everything, or inactive
-  return "mixed";
+  // Coordinator (BIZ): no code output
+  return "coordinator";
 }
 
 // ---------------------------------------------------------------------------
@@ -196,7 +191,7 @@ export function calculatePerformanceScore(p: PersonMetrics): PerformanceResult {
     return {
       score: 0,
       grade: "F",
-      role: "mixed",
+      role: "coordinator",
       breakdown: { code: 0, delivery: 0, workload: 0, quality: 0, consistency: 0 },
     };
   }

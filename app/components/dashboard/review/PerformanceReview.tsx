@@ -264,7 +264,7 @@ export function PerformanceReview() {
                   </div>
                   <div>
                     <span className="font-semibold">Role</span>{" "}
-                    <span className="text-muted-foreground">(DEV / BIZ / MIX)</span> — Auto-detected from activity patterns. <b>DEV</b> = writes code or closes issues. <b>BIZ</b> = creates issues without coding. <b>MIX</b> = balanced or inactive.
+                    <span className="text-muted-foreground">(DEV / BIZ / MIX)</span> — Based on code output and issue workflow. <b>DEV</b> = has code commits/MRs. <b>BIZ</b> = no code commits. <b>MIX</b> = has commits AND creates issues AND moves them through the workflow.
                   </div>
                   <div>
                     <span className="font-semibold">Activity</span> — Total GitLab events this period (commits + MRs + issues closed + comments). Measures output volume, not quality.

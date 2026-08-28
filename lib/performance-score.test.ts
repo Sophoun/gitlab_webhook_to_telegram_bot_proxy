@@ -35,28 +35,33 @@ describe("detectRole", () => {
     expect(detectRole(m)).toBe("developer");
   });
 
-  it("detects developer when many open tasks dominate activity", () => {
-    const m = makeMetrics({ openTaskCount: 18, issuesCreated: 3, mrsCreated: 1, mrsMerged: 1 });
+  it("detects developer when has commits and creates issues but does not move them", () => {
+    const m = makeMetrics({ commits: 10, issuesCreated: 3 });
     expect(detectRole(m)).toBe("developer");
   });
 
-  it("detects developer when closes more than creates", () => {
-    const m = makeMetrics({ issuesClosed: 10, issuesCreated: 3 });
-    expect(detectRole(m)).toBe("developer");
-  });
-
-  it("detects coordinator when only creates issues", () => {
+  it("detects coordinator (BIZ) when no code output", () => {
     const m = makeMetrics({ issuesCreated: 10 });
     expect(detectRole(m)).toBe("coordinator");
   });
 
-  it("detects mixed for zero activity", () => {
+  it("detects coordinator (BIZ) when closes issues without code", () => {
+    const m = makeMetrics({ issuesClosed: 10, issuesCreated: 3 });
+    expect(detectRole(m)).toBe("coordinator");
+  });
+
+  it("detects coordinator (BIZ) for zero activity", () => {
     const m = makeMetrics();
+    expect(detectRole(m)).toBe("coordinator");
+  });
+
+  it("detects mixed when has commits, creates issues, and moves them", () => {
+    const m = makeMetrics({ commits: 10, issuesCreated: 5, issuesClosed: 5 });
     expect(detectRole(m)).toBe("mixed");
   });
 
-  it("detects mixed when has balanced activity", () => {
-    const m = makeMetrics({ issuesCreated: 5, issuesClosed: 5 });
+  it("detects mixed when has commits, creates issues, and delivers progress", () => {
+    const m = makeMetrics({ commits: 10, issuesCreated: 5, progressDelivered: 10 });
     expect(detectRole(m)).toBe("mixed");
   });
 });
@@ -67,7 +72,7 @@ describe("calculatePerformanceScore", () => {
     const r = calculatePerformanceScore(m);
     expect(r.score).toBe(0);
     expect(r.grade).toBe("F");
-    expect(r.role).toBe("mixed");
+    expect(r.role).toBe("coordinator");
   });
 
   it("developer with strong output gets high score", () => {
