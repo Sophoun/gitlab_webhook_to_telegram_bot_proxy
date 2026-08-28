@@ -37,9 +37,11 @@ interface PersonWeek {
   name: string;
   issuesCreated: number;
   issuesClosed: number;
+  issuesReopened: number;
   mrsCreated: number;
   mrsMerged: number;
   commits: number;
+  totalComments: number;
   totalEvents: number;
   progressDelivered: number;
   openTaskCount: number;
@@ -52,6 +54,11 @@ interface PersonWeek {
   performanceScore: number;
   performanceGrade: "A" | "B" | "C" | "D" | "F";
   performanceRole: "developer" | "coordinator" | "mixed";
+  avgCycleTimeHours: number | null;
+  avgFirstResponseHours: number | null;
+  consistency: number;
+  daysActive: number;
+  totalDays: number;
 }
 
 interface ItemRef {
@@ -699,6 +706,45 @@ export function TeamWeekSection({
                                   </div>
                                 );
                               })()}
+
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2 border-t">
+                                <div className="text-center">
+                                  <p className="text-lg font-bold">
+                                    {p.avgCycleTimeHours !== null ? (
+                                      p.avgCycleTimeHours < 24
+                                        ? `${Math.round(p.avgCycleTimeHours)}h`
+                                        : `${Math.floor(p.avgCycleTimeHours / 24)}d ${Math.round(p.avgCycleTimeHours % 24)}h`
+                                    ) : "—"}
+                                  </p>
+                                  <p className="text-[10px] text-muted-foreground">Avg Cycle Time</p>
+                                </div>
+                                <div className="text-center">
+                                  <p className="text-lg font-bold">
+                                    {p.avgFirstResponseHours !== null ? (
+                                      p.avgFirstResponseHours < 24
+                                        ? `${Math.round(p.avgFirstResponseHours)}h`
+                                        : `${Math.floor(p.avgFirstResponseHours / 24)}d ${Math.round(p.avgFirstResponseHours % 24)}h`
+                                    ) : "—"}
+                                  </p>
+                                  <p className="text-[10px] text-muted-foreground">Avg First Response</p>
+                                </div>
+                                <div className="text-center">
+                                  <p className="text-lg font-bold">
+                                    {p.issuesReopened > 0 ? (
+                                      <span className="text-orange-600">{p.issuesReopened}×</span>
+                                    ) : (
+                                      <span className="text-muted-foreground">—</span>
+                                    )}
+                                  </p>
+                                  <p className="text-[10px] text-muted-foreground">Rework (Reopened)</p>
+                                </div>
+                                <div className="text-center">
+                                  <p className={`text-lg font-bold ${p.consistency >= 70 ? "text-emerald-600" : p.consistency >= 40 ? "text-yellow-600" : "text-red-500"}`}>
+                                    {p.consistency}%
+                                  </p>
+                                  <p className="text-[10px] text-muted-foreground">Consistency ({p.daysActive}/{p.totalDays} days)</p>
+                                </div>
+                              </div>
 
                               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t">
                                 <div>

@@ -2,15 +2,19 @@
  * Performance scoring engine — auto-detects role and computes a weighted
  * score (0-100) with letter grade.
  *
- * Two scoring paths:
- *   • Developer  — weighted toward code output (commits, MRs, cycle time)
- *   • Coordinator — weighted toward issue management (created, closed, comments)
- *   • Mixed       — blended score from both profiles
+ * Scoring is **assignment-based**, not creation-based:
+ *   • What matters is the work assigned to someone (openTaskCount),
+ *     what they delivered (issuesClosed, progressDelivered), and
+ *     their code output (commits, MRs).
+ *   • issuesCreated is NOT a scoring signal — creating an issue is
+ *     just filing a ticket, not doing the work.
  *
- * Role is auto-detected from the contribution mix:
- *   Code % ≥ 60       → developer
- *   Coordination % ≥ 60 → coordinator
- *   otherwise          → mixed
+ * Quality dimensions:
+ *   • Code output (commits, MRs)
+ *   • Delivery (issues closed, progress delivered)
+ *   • Workload (open tasks assigned)
+ *   • Quality (cycle time, first response time, rework rate)
+ *   • Consistency (days active / total days)
  */
 
 export type PerformanceRole = "developer" | "coordinator" | "mixed";
@@ -19,6 +23,7 @@ export type PerformanceGrade = "A" | "B" | "C" | "D" | "F";
 export interface PersonMetrics {
   issuesCreated: number;
   issuesClosed: number;
+  issuesReopened?: number;
   mrsCreated: number;
   mrsMerged: number;
   commits: number;
@@ -31,6 +36,8 @@ export interface PersonMetrics {
   avgCycleTimeHours?: number | null;
   /** Number of comments (issue + MR) — 0 if not tracked */
   totalComments?: number;
+  /** Consistency: days active / total days in period (0-100) */
+  consistency?: number;
 }
 
 export interface PerformanceResult {
@@ -40,44 +47,33 @@ export interface PerformanceResult {
   breakdown: {
     code: number;
     delivery: number;
+    workload: number;
     quality: number;
-    collaboration: number;
+    consistency: number;
   };
 }
 
 // ---------------------------------------------------------------------------
-// Role detection
+// Role detection — based on activity patterns, not creation
 // ---------------------------------------------------------------------------
 
-/** Percentage of work that is "code" (commits + MRs) vs total activity */
-function codePct(p: PersonMetrics): number {
-  const code = p.commits + p.mrsMerged + p.mrsCreated;
-  const total = p.issuesCreated + p.issuesClosed + code;
-  return total === 0 ? 0 : Math.round((code / total) * 100);
-}
-
-/** Percentage of work that is "coordination" (issues created) */
-function coordinationPct(p: PersonMetrics): number {
-  const total = p.issuesCreated + p.issuesClosed + p.commits + p.mrsMerged + p.mrsCreated;
-  return total === 0 ? 0 : Math.round((p.issuesCreated / total) * 100);
-}
-
 export function detectRole(p: PersonMetrics): PerformanceRole {
-  const code = codePct(p);
-  const coord = coordinationPct(p);
-
-  // If someone has many open tasks assigned, they're likely doing the work
-  // (developer), not just managing it. Open tasks are a strong signal of
-  // developer intent even when period activity is low or coordination-heavy.
+  const hasCodeOutput = p.commits > 0 || p.mrsMerged > 0 || p.mrsCreated > 0;
+  const hasDelivery = p.issuesClosed > 0 || p.progressDelivered > 0;
   const hasManyOpenTasks = p.openTaskCount >= 5;
-  const activityCount = p.issuesCreated + p.issuesClosed + p.commits + p.mrsMerged + p.mrsCreated;
-  // If open tasks vastly outnumber period activity, this person is likely a
-  // developer who is between sprints or whose work isn't fully captured yet
+  const activityCount =
+    p.issuesCreated + p.issuesClosed + p.commits + p.mrsMerged + p.mrsCreated;
   const openTasksDominant = hasManyOpenTasks && p.openTaskCount > activityCount * 3;
 
-  if (code >= 60) return "developer";
+  // Developer: has code output, OR has many assigned tasks, OR closes more than creates
+  if (hasCodeOutput) return "developer";
   if (openTasksDominant) return "developer";
-  if (coord >= 60) return "coordinator";
+  if (hasDelivery && p.issuesClosed > p.issuesCreated) return "developer";
+
+  // Coordinator: creates issues but doesn't code, and creates more than they close
+  if (p.issuesCreated > 0 && !hasCodeOutput && p.issuesCreated > p.issuesClosed) return "coordinator";
+
+  // Mixed: has some of everything, or inactive
   return "mixed";
 }
 
@@ -85,14 +81,13 @@ export function detectRole(p: PersonMetrics): PerformanceRole {
 // Scoring helpers
 // ---------------------------------------------------------------------------
 
-/** Clamp a value to [0, max] */
 function clamp(v: number, max: number): number {
   return Math.min(max, Math.max(0, v));
 }
 
 /** Map response time (hours) to a 0-100 quality score (lower is better) */
 function responseTimeScore(hours: number | null | undefined): number {
-  if (hours === null || hours === undefined || hours < 0) return 50; // neutral if no data
+  if (hours === null || hours === undefined || hours < 0) return 50;
   if (hours <= 2) return 100;
   if (hours <= 8) return 90;
   if (hours <= 24) return 75;
@@ -114,62 +109,73 @@ function cycleTimeScore(hours: number | null | undefined): number {
 }
 
 // ---------------------------------------------------------------------------
-// Main scoring
+// Main scoring — assignment-based with quality metrics
 // ---------------------------------------------------------------------------
 
 function developerScore(p: PersonMetrics): PerformanceResult["breakdown"] {
-  // Code (40 pts): commits, mrsCreated, mrsMerged
+  // Code (35 pts): commits, mrsCreated, mrsMerged
   const rawCode = p.commits * 1 + p.mrsCreated * 2 + p.mrsMerged * 3;
-  const code = clamp(rawCode * 1.2, 40);
+  const code = clamp(rawCode * 1.0, 35);
 
-  // Delivery (30 pts): issuesClosed, progressDelivered
+  // Delivery (25 pts): issuesClosed + progressDelivered
   const rawDelivery = p.issuesClosed * 2 + p.progressDelivered * 0.5;
-  const delivery = clamp(rawDelivery * 1.5, 30);
+  const delivery = clamp(rawDelivery * 1.5, 25);
 
-  // Quality (20 pts): response time + cycle time
-  // Only credit quality if there's actual output; zero-activity → 0
+  // Workload (15 pts): openTaskCount (capped at ~10 for full marks)
+  const rawWorkload = Math.min(p.openTaskCount, 10) * 1.5;
+  const workload = clamp(rawWorkload, 15);
+
+  // Quality (15 pts): cycle time + first response + rework penalty
   const hasActivity = p.totalEvents > 0;
   const rtScore = responseTimeScore(hasActivity ? p.avgFirstResponseHours : null);
   const ctScore = cycleTimeScore(hasActivity ? p.avgCycleTimeHours : null);
-  const quality = hasActivity ? clamp(((rtScore + ctScore) / 200) * 20, 20) : 0;
+  // Rework penalty: if someone has closed issues but also reopenings,
+  // it suggests quality problems. Penalize up to -5 pts.
+  const closedPlusReopened = p.issuesClosed + (p.issuesReopened || 0);
+  const reworkRate = closedPlusReopened > 0 ? (p.issuesReopened || 0) / closedPlusReopened : 0;
+  const reworkPenalty = reworkRate * 5;
+  const qualityBase = ((rtScore + ctScore) / 200) * 15;
+  const quality = hasActivity ? clamp(qualityBase - reworkPenalty, 15) : 0;
 
-  // Collaboration (10 pts): comments + open task management
-  const rawCollab = (p.totalComments || 0) * 0.5 + (p.openTaskCount > 0 ? 3 : 0);
-  const collaboration = clamp(rawCollab, 10);
+  // Consistency (10 pts): days active / total days
+  const consistency = clamp(((p.consistency || 0) / 100) * 10, 10);
 
-  return { code, delivery, quality, collaboration };
+  return { code, delivery, workload, quality, consistency };
 }
 
 function coordinatorScore(p: PersonMetrics): PerformanceResult["breakdown"] {
-  // Issue management (40 pts): issuesCreated, issuesClosed
-  const rawIssue = p.issuesCreated * 1.5 + p.issuesClosed * 2;
-  const code = clamp(rawIssue * 2.0, 40);
+  // Issue creation (35 pts): issuesCreated
+  const rawIssue = p.issuesCreated * 2;
+  const code = clamp(rawIssue * 2.0, 35);
 
-  // Communication (30 pts): comments
+  // Communication (25 pts): comments
   const rawComm = (p.totalComments || 0) * 0.8;
-  const delivery = clamp(rawComm, 30);
+  const delivery = clamp(rawComm, 25);
 
-  // Delivery (20 pts): progress delivered, issues closed
+  // Delivery (15 pts): progress delivered + issues closed
   const hasActivity = p.totalEvents > 0;
   const rawProgress = p.progressDelivered * 1 + p.issuesClosed * 1;
-  const quality = hasActivity ? clamp(rawProgress * 1.0, 20) : 0;
+  const workload = hasActivity ? clamp(rawProgress * 1.0, 15) : 0;
 
-  // Collaboration (10 pts): open task count + total activity
+  // Quality (15 pts): consistency + engagement
+  const quality = clamp(((p.consistency || 0) / 100) * 15, 15);
+
+  // Collaboration (10 pts): open task management + activity
   const rawCollab = (p.openTaskCount > 0 ? 4 : 0) + clamp(p.totalEvents * 0.3, 6);
-  const collaboration = clamp(rawCollab, 10);
+  const consistency = clamp(rawCollab, 10);
 
-  return { code, delivery, quality, collaboration };
+  return { code, delivery, workload, quality, consistency };
 }
 
 function mixedScore(p: PersonMetrics): PerformanceResult["breakdown"] {
   const dev = developerScore(p);
   const coord = coordinatorScore(p);
-  // Weighted blend: 50/50
   return {
     code: (dev.code + coord.code) / 2,
     delivery: (dev.delivery + coord.delivery) / 2,
+    workload: (dev.workload + coord.workload) / 2,
     quality: (dev.quality + coord.quality) / 2,
-    collaboration: (dev.collaboration + coord.collaboration) / 2,
+    consistency: (dev.consistency + coord.consistency) / 2,
   };
 }
 
@@ -184,6 +190,17 @@ function scoreToGrade(score: number): PerformanceGrade {
 export function calculatePerformanceScore(p: PersonMetrics): PerformanceResult {
   const role = detectRole(p);
 
+  // Zero activity → score 0 regardless of role
+  const hasAnyActivity = p.totalEvents > 0 || p.openTaskCount > 0;
+  if (!hasAnyActivity) {
+    return {
+      score: 0,
+      grade: "F",
+      role: "mixed",
+      breakdown: { code: 0, delivery: 0, workload: 0, quality: 0, consistency: 0 },
+    };
+  }
+
   const breakdown =
     role === "developer"
       ? developerScore(p)
@@ -192,7 +209,7 @@ export function calculatePerformanceScore(p: PersonMetrics): PerformanceResult {
         : mixedScore(p);
 
   const score = Math.round(
-    breakdown.code + breakdown.delivery + breakdown.quality + breakdown.collaboration
+    breakdown.code + breakdown.delivery + breakdown.workload + breakdown.quality + breakdown.consistency
   );
 
   return {

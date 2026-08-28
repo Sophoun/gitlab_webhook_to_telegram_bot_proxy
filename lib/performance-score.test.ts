@@ -18,35 +18,46 @@ function makeMetrics(overrides: Partial<PersonMetrics> = {}): PersonMetrics {
     avgFirstResponseHours: null,
     avgCycleTimeHours: null,
     totalComments: 0,
+    consistency: 0,
+    issuesReopened: 0,
     ...overrides,
   };
 }
 
 describe("detectRole", () => {
-  it("detects developer when code >= 60%", () => {
-    const m = makeMetrics({ commits: 50, mrsMerged: 10, mrsCreated: 5, issuesCreated: 2, issuesClosed: 2 });
+  it("detects developer when has code output", () => {
+    const m = makeMetrics({ commits: 20 });
     expect(detectRole(m)).toBe("developer");
   });
 
-  it("detects coordinator when coordination >= 60%", () => {
-    const m = makeMetrics({ issuesCreated: 20, issuesClosed: 5, commits: 3 });
+  it("detects developer when has MRs", () => {
+    const m = makeMetrics({ mrsMerged: 5 });
+    expect(detectRole(m)).toBe("developer");
+  });
+
+  it("detects developer when many open tasks dominate activity", () => {
+    const m = makeMetrics({ openTaskCount: 18, issuesCreated: 3, mrsCreated: 1, mrsMerged: 1 });
+    expect(detectRole(m)).toBe("developer");
+  });
+
+  it("detects developer when closes more than creates", () => {
+    const m = makeMetrics({ issuesClosed: 10, issuesCreated: 3 });
+    expect(detectRole(m)).toBe("developer");
+  });
+
+  it("detects coordinator when only creates issues", () => {
+    const m = makeMetrics({ issuesCreated: 10 });
     expect(detectRole(m)).toBe("coordinator");
   });
 
-  it("detects mixed when no dominant category", () => {
-    const m = makeMetrics({ commits: 10, issuesCreated: 8, issuesClosed: 6, mrsMerged: 3 });
-    expect(detectRole(m)).toBe("mixed");
-  });
-
-  it("returns mixed for zero activity", () => {
+  it("detects mixed for zero activity", () => {
     const m = makeMetrics();
     expect(detectRole(m)).toBe("mixed");
   });
 
-  it("detects developer when many open tasks dominate period activity", () => {
-    // Scenario: 18 open tasks but only 5 events in period
-    const m = makeMetrics({ openTaskCount: 18, issuesCreated: 3, mrsCreated: 1, mrsMerged: 1 });
-    expect(detectRole(m)).toBe("developer");
+  it("detects mixed when has balanced activity", () => {
+    const m = makeMetrics({ issuesCreated: 5, issuesClosed: 5 });
+    expect(detectRole(m)).toBe("mixed");
   });
 });
 
@@ -69,13 +80,14 @@ describe("calculatePerformanceScore", () => {
       avgFirstResponseHours: 4,
       avgCycleTimeHours: 48,
       totalComments: 10,
-      openTaskCount: 3,
+      openTaskCount: 8,
       totalEvents: 120,
+      consistency: 80,
     });
     const r = calculatePerformanceScore(m);
     expect(r.role).toBe("developer");
-    expect(r.score).toBeGreaterThanOrEqual(70);
-    expect(["A", "B", "C"]).toContain(r.grade);
+    expect(r.score).toBeGreaterThanOrEqual(60);
+    expect(["A", "B", "C", "D"]).toContain(r.grade);
   });
 
   it("coordinator with strong issue management gets high score", () => {
@@ -84,12 +96,13 @@ describe("calculatePerformanceScore", () => {
       issuesClosed: 20,
       totalComments: 25,
       progressDelivered: 30,
-      openTaskCount: 0, // no open tasks = pure coordinator
+      openTaskCount: 0,
       totalEvents: 55,
+      consistency: 70,
     });
     const r = calculatePerformanceScore(m);
     expect(r.role).toBe("coordinator");
-    expect(r.score).toBeGreaterThanOrEqual(70);
+    expect(r.score).toBeGreaterThanOrEqual(60);
   });
 
   it("score is clamped to 100", () => {
@@ -105,26 +118,24 @@ describe("calculatePerformanceScore", () => {
       totalComments: 50,
       openTaskCount: 10,
       totalEvents: 300,
+      consistency: 100,
     });
     const r = calculatePerformanceScore(m);
     expect(r.score).toBeLessThanOrEqual(100);
   });
 
-  it("grade boundaries: 89 = B, 90 = A", () => {
-    // Construct metrics that produce specific score ranges
-    // Just verify the grade mapping is correct at boundaries
-    const m1 = makeMetrics({
+  it("grade boundaries are correct", () => {
+    const m = makeMetrics({
       commits: 15, mrsMerged: 5, mrsCreated: 3,
       issuesCreated: 10, issuesClosed: 8,
       totalComments: 5, openTaskCount: 2,
       progressDelivered: 20, totalEvents: 30,
+      consistency: 50,
     });
-    const r1 = calculatePerformanceScore(m1);
-    expect(["A", "B", "C", "D", "F"]).toContain(r1.grade);
-
-    // Score must be within 0-100
-    expect(r1.score).toBeGreaterThanOrEqual(0);
-    expect(r1.score).toBeLessThanOrEqual(100);
+    const r = calculatePerformanceScore(m);
+    expect(["A", "B", "C", "D", "F"]).toContain(r.grade);
+    expect(r.score).toBeGreaterThanOrEqual(0);
+    expect(r.score).toBeLessThanOrEqual(100);
   });
 
   it("breakdown sums approximately to score", () => {
@@ -132,29 +143,51 @@ describe("calculatePerformanceScore", () => {
       commits: 20, mrsMerged: 5, issuesClosed: 10,
       issuesCreated: 5, totalComments: 8,
       progressDelivered: 15, openTaskCount: 2,
-      totalEvents: 30,
+      totalEvents: 30, consistency: 60,
     });
     const r = calculatePerformanceScore(m);
     const breakdownSum =
-      r.breakdown.code + r.breakdown.delivery + r.breakdown.quality + r.breakdown.collaboration;
+      r.breakdown.code + r.breakdown.delivery + r.breakdown.workload + r.breakdown.quality + r.breakdown.consistency;
     expect(Math.abs(r.score - Math.round(breakdownSum))).toBeLessThanOrEqual(1);
   });
 
-  it("developer score weights code heavily", () => {
-    // A code-heavy person gets detected as developer and scores well on code
-    const dev = makeMetrics({ commits: 8, mrsMerged: 2, mrsCreated: 1 });
+  it("developer scores higher on code dimension", () => {
+    const dev = makeMetrics({ commits: 8, mrsMerged: 2, mrsCreated: 1, totalEvents: 11 });
     const devResult = calculatePerformanceScore(dev);
     expect(devResult.role).toBe("developer");
     expect(devResult.breakdown.code).toBeGreaterThan(0);
   });
 
-  it("coordinator score weights issue management heavily", () => {
-    // An issue-heavy person with comments gets detected as coordinator
-    const coord = makeMetrics({ issuesCreated: 8, issuesClosed: 2, totalComments: 5 });
-    const coordResult = calculatePerformanceScore(coord);
-    expect(coordResult.role).toBe("coordinator");
-    // Code slot = issue management, delivery slot = comments
-    expect(coordResult.breakdown.code).toBeGreaterThan(0);
-    expect(coordResult.breakdown.delivery).toBeGreaterThan(0);
+  it("open tasks boost developer workload score", () => {
+    const few = makeMetrics({ commits: 10, openTaskCount: 1, totalEvents: 10 });
+    const many = makeMetrics({ commits: 10, openTaskCount: 10, totalEvents: 10 });
+    const fewResult = calculatePerformanceScore(few);
+    const manyResult = calculatePerformanceScore(many);
+    expect(manyResult.breakdown.workload).toBeGreaterThan(fewResult.breakdown.workload);
+  });
+
+  it("rework penalty reduces developer quality score", () => {
+    const clean = makeMetrics({ commits: 10, issuesClosed: 10, issuesReopened: 0, totalEvents: 20, consistency: 80 });
+    const reworked = makeMetrics({ commits: 10, issuesClosed: 10, issuesReopened: 8, totalEvents: 28, consistency: 80 });
+    const cleanResult = calculatePerformanceScore(clean);
+    const reworkedResult = calculatePerformanceScore(reworked);
+    expect(reworkedResult.breakdown.quality).toBeLessThan(cleanResult.breakdown.quality);
+  });
+
+  it("consistency boosts score", () => {
+    const sporadic = makeMetrics({ commits: 10, totalEvents: 10, consistency: 20 });
+    const consistent = makeMetrics({ commits: 10, totalEvents: 10, consistency: 90 });
+    const sporadicResult = calculatePerformanceScore(sporadic);
+    const consistentResult = calculatePerformanceScore(consistent);
+    expect(consistentResult.breakdown.consistency).toBeGreaterThan(sporadicResult.breakdown.consistency);
+    expect(consistentResult.score).toBeGreaterThan(sporadicResult.score);
+  });
+
+  it("fast response time boosts quality score", () => {
+    const fast = makeMetrics({ commits: 10, totalEvents: 10, avgFirstResponseHours: 2, avgCycleTimeHours: 24 });
+    const slow = makeMetrics({ commits: 10, totalEvents: 10, avgFirstResponseHours: 72, avgCycleTimeHours: 336 });
+    const fastResult = calculatePerformanceScore(fast);
+    const slowResult = calculatePerformanceScore(slow);
+    expect(fastResult.breakdown.quality).toBeGreaterThan(slowResult.breakdown.quality);
   });
 });

@@ -24,6 +24,22 @@ function shiftRange(type: PeriodType, from: Date, to: Date, delta: number): { fr
   return { from: nf, to: nt };
 }
 
+interface PersonAggregate {
+  username: string;
+  name: string;
+  issuesCreated: number;
+  issuesClosed: number;
+  issuesReopened: number;
+  mrsCreated: number;
+  mrsMerged: number;
+  commits: number;
+  issueComments: number;
+  mrComments: number;
+  totalEvents: number;
+  activeDays: Set<string>;
+  lastActivityAt: Date | null;
+}
+
 async function fetchPeriodData(
   db: ReturnType<typeof getDb>,
   from: Date,
@@ -49,41 +65,37 @@ async function fetchPeriodData(
     );
 
   // Aggregate per person
-  const map = new Map<
-    string,
-    {
-      username: string;
-      name: string;
-      issuesCreated: number;
-      issuesClosed: number;
-      mrsCreated: number;
-      mrsMerged: number;
-      commits: number;
-      totalEvents: number;
-      lastActivityAt: Date | null;
-    }
-  >();
+  const map = new Map<string, PersonAggregate>();
 
   for (const r of rows) {
-    const p =
-      map.get(r.userUsername) ||
-      {
+    let p = map.get(r.userUsername);
+    if (!p) {
+      p = {
         username: r.userUsername,
         name: r.userName,
         issuesCreated: 0,
         issuesClosed: 0,
+        issuesReopened: 0,
         mrsCreated: 0,
         mrsMerged: 0,
         commits: 0,
+        issueComments: 0,
+        mrComments: 0,
         totalEvents: 0,
+        activeDays: new Set(),
         lastActivityAt: null,
       };
+      map.set(r.userUsername, p);
+    }
     switch (r.activityType) {
       case "issue_created":
         p.issuesCreated++;
         break;
       case "issue_closed":
         p.issuesClosed++;
+        break;
+      case "issue_reopened":
+        p.issuesReopened++;
         break;
       case "mr_created":
         p.mrsCreated++;
@@ -94,9 +106,18 @@ async function fetchPeriodData(
       case "commit":
         p.commits++;
         break;
+      case "issue_comment":
+        p.issueComments++;
+        break;
+      case "mr_comment":
+        p.mrComments++;
+        break;
     }
     p.totalEvents++;
     const occurred = new Date(r.occurredAt);
+    // Track active days for consistency metric
+    const dayKey = occurred.toISOString().slice(0, 10);
+    p.activeDays.add(dayKey);
     if (!p.lastActivityAt || occurred > p.lastActivityAt) {
       p.lastActivityAt = occurred;
     }
@@ -125,15 +146,19 @@ async function fetchPeriodData(
       name: u.name,
       issuesCreated: 0,
       issuesClosed: 0,
+      issuesReopened: 0,
       mrsCreated: 0,
       mrsMerged: 0,
       commits: 0,
+      issueComments: 0,
+      mrComments: 0,
       totalEvents: 0,
+      activeDays: new Set<string>(),
       lastActivityAt: null,
     }));
 
   const seen = new Set<string>();
-  const everyone: typeof people = [];
+  const everyone: PersonAggregate[] = [];
   for (const p of [...people, ...inactive]) {
     if (seen.has(p.username)) continue;
     seen.add(p.username);
@@ -161,14 +186,32 @@ async function fetchPeriodData(
     to
   );
 
+  // Compute period length for consistency metric
+  const totalDays = Math.max(1, Math.ceil((to.getTime() - from.getTime()) / 86_400_000));
+
   const peopleWithProgress = everyone.map((p) => {
     const d = delivered.get(p.username);
+    const daysActive = p.activeDays.size;
     return {
-      ...p,
+      username: p.username,
+      name: p.name,
+      issuesCreated: p.issuesCreated,
+      issuesClosed: p.issuesClosed,
+      issuesReopened: p.issuesReopened,
+      mrsCreated: p.mrsCreated,
+      mrsMerged: p.mrsMerged,
+      commits: p.commits,
+      issueComments: p.issueComments,
+      mrComments: p.mrComments,
+      totalComments: p.issueComments + p.mrComments,
+      totalEvents: p.totalEvents,
       devProgressDelivered: d?.dev ?? 0,
       qaProgressDelivered: d?.qa ?? 0,
       progressDelivered: (d?.dev ?? 0) + (d?.qa ?? 0),
       lastActivityAt: p.lastActivityAt ? p.lastActivityAt.toISOString() : null,
+      daysActive,
+      totalDays,
+      consistency: totalDays > 0 ? Math.round((daysActive / totalDays) * 100) : 0,
     };
   });
 
@@ -253,14 +296,43 @@ export async function GET(request: NextRequest) {
     };
     for (const r of openRows) {
       const stage = parseBoardLabels(r.labels, "open").boardStage;
-      // Open tasks count toward the ASSIGNEE (who owns the work), not the
-      // author (who created it). This is different from MRs where authorship
-      // is the primary attribution.
       for (const a of (r.assigneeUsernames || "").split(",")) {
         const t = a.trim();
         if (t) credit(t, stage);
       }
     }
+
+    // Quality metrics per person from issueAnalytics (avg cycle time, avg first response)
+    const qualityRows = await db
+      .select({
+        assigneeUsernames: issueAnalytics.assigneeUsernames,
+        timeToCloseHours: issueAnalytics.timeToCloseHours,
+        timeToFirstResponseHours: issueAnalytics.timeToFirstResponseHours,
+        state: issueAnalytics.state,
+      })
+      .from(issueAnalytics);
+
+    // Aggregate quality metrics per person
+    const qualityMap = new Map<string, { closeTimes: number[]; responseTimes: number[] }>();
+    for (const r of qualityRows) {
+      for (const a of (r.assigneeUsernames || "").split(",")) {
+        const t = a.trim();
+        if (!t) continue;
+        if (!qualityMap.has(t)) qualityMap.set(t, { closeTimes: [], responseTimes: [] });
+        const q = qualityMap.get(t)!;
+        if (r.timeToCloseHours != null && r.state === "closed") {
+          q.closeTimes.push(r.timeToCloseHours);
+        }
+        if (r.timeToFirstResponseHours != null) {
+          q.responseTimes.push(r.timeToFirstResponseHours);
+        }
+      }
+    }
+
+    const avg = (arr: number[]): number | null => {
+      if (arr.length === 0) return null;
+      return Math.round(arr.reduce((a, b) => a + b, 0) / arr.length);
+    };
 
     const result = peopleWithDeltas
       .map((p) => {
@@ -272,10 +344,13 @@ export async function GET(request: NextRequest) {
         for (const stage of FALLBACK_STAGES) {
           if (byStage[stage]) stages[stage] = byStage[stage];
         }
+        const quality = qualityMap.get(p.username);
         return {
           ...p,
           openTaskCount: openTaskCount.get(p.username) || 0,
           openTasksByStage: stages,
+          avgCycleTimeHours: quality ? avg(quality.closeTimes) : null,
+          avgFirstResponseHours: quality ? avg(quality.responseTimes) : null,
         };
       })
       // Only show people with activity in the period OR open tasks assigned
@@ -290,6 +365,9 @@ export async function GET(request: NextRequest) {
           totalEvents: p.totalEvents,
           progressDelivered: p.progressDelivered,
           openTaskCount: p.openTaskCount,
+          avgCycleTimeHours: p.avgCycleTimeHours,
+          avgFirstResponseHours: p.avgFirstResponseHours,
+          totalComments: p.totalComments,
         });
         return {
           ...p,

@@ -10,6 +10,7 @@ import {
   ClipboardList,
   Users2,
   ListTodo,
+  BarChart3,
   Menu,
   X,
 } from "lucide-react";
@@ -28,6 +29,7 @@ const navigationGroups = [
     items: [
       { name: "Issue Review", href: "/review", icon: ClipboardList },
       { name: "Who Did What", href: "/review/team", icon: Users2 },
+      { name: "Performance", href: "/review/performance", icon: BarChart3 },
       { name: "Issue Tracker", href: "/review/tracker", icon: ListTodo },
     ],
   },

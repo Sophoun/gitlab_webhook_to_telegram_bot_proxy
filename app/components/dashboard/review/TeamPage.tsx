@@ -14,9 +14,11 @@ interface PersonWeek {
   name: string;
   issuesCreated: number;
   issuesClosed: number;
+  issuesReopened: number;
   mrsCreated: number;
   mrsMerged: number;
   commits: number;
+  totalComments: number;
   totalEvents: number;
   /** Progress % added via /dev + /test + /uat commands in the period */
   progressDelivered: number;
@@ -35,6 +37,13 @@ interface PersonWeek {
   performanceScore: number;
   performanceGrade: "A" | "B" | "C" | "D" | "F";
   performanceRole: "developer" | "coordinator" | "mixed";
+  /** Quality metrics */
+  avgCycleTimeHours: number | null;
+  avgFirstResponseHours: number | null;
+  /** Consistency */
+  consistency: number;
+  daysActive: number;
+  totalDays: number;
 }
 
 type PeriodType = "day" | "week" | "month" | "custom";

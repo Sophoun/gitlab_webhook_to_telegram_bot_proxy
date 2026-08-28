@@ -127,8 +127,8 @@ export function PersonProfile({ username }: { username: string }) {
   if (!report) {
     return (
       <div className="p-6 space-y-4">
-        <Button variant="outline" onClick={() => router.push("/review/team")}>
-          <ArrowLeft className="h-4 w-4 mr-2" /> Back to Who Did What
+        <Button variant="outline" onClick={() => router.back()}>
+          <ArrowLeft className="h-4 w-4 mr-2" /> Back
         </Button>
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
@@ -146,8 +146,8 @@ export function PersonProfile({ username }: { username: string }) {
         <Button
           variant="outline"
           size="icon"
-          onClick={() => router.push("/review/team")}
-          aria-label="Back to Who Did What"
+          onClick={() => router.back()}
+          aria-label="Go back"
         >
           <ArrowLeft className="h-4 w-4" />
         </Button>
