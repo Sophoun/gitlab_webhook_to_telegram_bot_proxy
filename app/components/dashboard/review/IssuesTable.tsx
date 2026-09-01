@@ -71,7 +71,7 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
       if (priorityFilter !== "All" && (i.priority || "") !== priorityFilter) return false;
       if (teamFilter !== "All" && (i.team || "") !== teamFilter) return false;
       if (assigneeFilter !== "All") {
-        const people = [i.authorUsername, ...(i.assigneeUsernames || "").split(",").map((a) => a.trim())];
+        const people = (i.assigneeUsernames || "").split(",").map((a) => a.trim());
         if (!people.includes(assigneeFilter)) return false;
       }
       if (!q) return true;
@@ -84,13 +84,10 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
     });
   }, [issues, search, statusFilter, stageFilter, assigneeFilter, priorityFilter, teamFilter]);
 
-  // Facet options derived from the loaded issues
+  // Facet options derived from the loaded issues (assignee-only)
   const assigneeOptions = useMemo(() => {
     const names = new Map<string, string>(); // username -> display name
     for (const i of issues) {
-      if (i.authorUsername && !names.has(i.authorUsername)) {
-        names.set(i.authorUsername, i.authorName);
-      }
       for (const a of (i.assigneeUsernames || "").split(",")) {
         const t = a.trim();
         if (t && !names.has(t)) names.set(t, t);
@@ -242,9 +239,10 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
             setPage(1);
           }}
           className="h-9 rounded-md border bg-background px-3 text-sm"
-          aria-label="Filter by person"
+          aria-label="Filter by assigned person"
+          title="Filter issues by who they are assigned to"
         >
-          <option value="All">All people</option>
+          <option value="All">Assigned to: All</option>
           {assigneeOptions.map((a) => (
             <option key={a.username} value={a.username}>
               {a.name !== a.username ? `${a.name} (@${a.username})` : `@${a.username}`}
@@ -259,8 +257,9 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
           }}
           className="h-9 rounded-md border bg-background px-3 text-sm"
           aria-label="Filter by priority"
+          title="Filter by priority (P0 = urgent)"
         >
-          <option value="All">All priorities</option>
+          <option value="All">Priority: All</option>
           {priorityOptions.map((p) => (
             <option key={p} value={p}>
               {p}
@@ -274,9 +273,10 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
             setPage(1);
           }}
           className="h-9 rounded-md border bg-background px-3 text-sm"
-          aria-label="Filter by team"
+          aria-label="Filter by squad"
+          title="Filter by the squad label on each issue"
         >
-          <option value="All">All teams</option>
+          <option value="All">Squad: All</option>
           {teamOptions.map((t) => (
             <option key={t} value={t}>
               {t}

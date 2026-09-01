@@ -23,7 +23,7 @@ interface GitLabProject {
 interface SyncDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSync: (gitlabProjectIds?: number[]) => void;
+  onSync: (gitlabProjectIds?: number[], clean?: boolean) => void;
   syncing: boolean;
 }
 
@@ -37,6 +37,7 @@ export function SyncDialog({
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [selectedProjectIds, setSelectedProjectIds] = useState<number[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [cleanFirst, setCleanFirst] = useState(false);
 
   // Fetch GitLab projects when dialog opens
   useEffect(() => {
@@ -44,8 +45,17 @@ export function SyncDialog({
       fetchGitLabProjects();
       setSelectedProjectIds([]);
       setSearchQuery("");
+      setCleanFirst(false);
     }
   }, [open]);
+
+  // Close dialog when syncing finishes
+  useEffect(() => {
+    if (!syncing && open) {
+      // syncing just went from true → false — close the dialog
+      onOpenChange(false);
+    }
+  }, [syncing]);
 
   async function fetchGitLabProjects() {
     try {
@@ -78,7 +88,7 @@ export function SyncDialog({
   }
 
   function handleSync() {
-    onSync(selectedProjectIds.length > 0 ? selectedProjectIds : undefined);
+    onSync(selectedProjectIds.length > 0 ? selectedProjectIds : undefined, cleanFirst);
   }
 
   // Filter projects by search query
@@ -191,7 +201,40 @@ export function SyncDialog({
               projects to sync only those, or leave empty to sync all.
             </p>
           </div>
+
+          <label className="flex items-start gap-2 px-3 py-2 rounded-lg bg-orange-500/10 border border-orange-500/20 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={cleanFirst}
+              onChange={(e) => setCleanFirst(e.target.checked)}
+              disabled={syncing}
+              className="rounded mt-0.5"
+            />
+            <div>
+              <div className="text-sm font-medium text-orange-700 dark:text-orange-400">
+                Clean &amp; Re-sync
+              </div>
+              <div className="text-xs text-orange-600/70 dark:text-orange-400/70">
+                Wipe all analytics data first, then re-sync everything from scratch.
+                Progress commands (/dev, /test) are preserved.
+              </div>
+            </div>
+          </label>
         </div>
+
+        {syncing && (
+          <div className="flex items-center gap-3 p-4 rounded-lg bg-blue-500/10 border border-blue-500/20">
+            <div className="h-5 w-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+            <div>
+              <div className="text-sm font-medium text-blue-700 dark:text-blue-400">
+                Syncing in progress…
+              </div>
+              <div className="text-xs text-blue-600/70 dark:text-blue-400/70">
+                This may take several minutes. The dialog will close automatically when done.
+              </div>
+            </div>
+          </div>
+        )}
 
         <DialogFooter>
           <Button

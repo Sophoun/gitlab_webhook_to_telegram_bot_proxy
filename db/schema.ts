@@ -134,6 +134,19 @@ export const issueLinks = sqliteTable("issue_links", {
   linkType: text("link_type"),
 });
 
+// Parsed tasks from issue descriptions (e.g., "- [ ] Task name @username")
+// Captures checkbox items and their assignees during sync.
+export const issueTasks = sqliteTable("issue_tasks", {
+  id: integer("id", { mode: "number" }).primaryKey({ autoIncrement: true }),
+  projectId: integer("project_id").notNull(),
+  gitlabProjectId: integer("gitlab_project_id").notNull(),
+  issueIid: integer("issue_iid").notNull(),
+  taskText: text("task_text").notNull(),       // e.g., "Implement login flow"
+  assigneeUsername: text("assignee_username"),   // e.g., "alice" (lowercase)
+  isCompleted: integer("is_completed", { mode: "boolean" }).notNull().default(false),
+  syncedAt: integer("synced_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
+});
+
 // Zod schemas for validation
 export const insertProjectSchema = createInsertSchema(projects, {
   name: z.string().min(1, "Name is required"),

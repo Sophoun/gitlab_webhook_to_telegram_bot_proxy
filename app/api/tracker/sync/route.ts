@@ -7,11 +7,13 @@ import {
   issueProgress,
   issueProgressHistory,
   issueLinks,
+  issueTasks,
   gitlabRepos,
 } from "@/db/schema";
 import { createGitLabClient } from "@/lib/gitlab-api";
 import { parseProgressCommands, parseProgressUpdate } from "@/lib/progress-parser";
 import { parseCrossProjectRefs } from "@/lib/issue-links";
+import { parseIssueTasks } from "@/lib/task-parser";
 import { and, eq, ne } from "drizzle-orm";
 
 /**
@@ -61,9 +63,19 @@ async function buildRosterMaps(db: ReturnType<typeof getDb>) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { gitlab_project_ids, from_date } = body;
+    const { gitlab_project_ids, from_date, clean } = body;
 
     const db = getDb();
+
+    // If clean=true, wipe all analytics tables before re-syncing
+    if (clean) {
+      await db.delete(userActivity);
+      await db.delete(issueAnalytics);
+      await db.delete(issueLinks);
+      await db.delete(issueTasks);
+      await db.delete(issueProgressHistory);
+      // NOTE: issue_progress is intentionally NOT wiped — it persists across runs
+    }
 
     // Canonical identity maps for commit attribution (see buildRosterMaps).
     // Built BEFORE any rows are deleted so prior sync data is still visible.
@@ -86,6 +98,7 @@ export async function POST(request: NextRequest) {
       progressUpdatesRecorded: 0,
       progressHistoryRecorded: 0,
       issueLinksRecorded: 0,
+      issueTasksRecorded: 0,
     };
 
     // Build a map of GitLab project IDs we want to sync
@@ -171,8 +184,9 @@ export async function POST(request: NextRequest) {
           // Collect all activities for batch insert
           const activitiesToInsert: Array<typeof userActivity.$inferInsert> = [];
           const issueAnalyticsToInsert: Array<typeof issueAnalytics.$inferInsert> = [];
-          const progressHistoryToInsert: Array<typeof issueProgressHistory.$inferInsert> = [];
+          const issueProgressHistoryToInsert: Array<typeof issueProgressHistory.$inferInsert> = [];
           const issueLinksToInsert: Array<typeof issueLinks.$inferInsert> = [];
+          const issueTasksToInsert: Array<typeof issueTasks.$inferInsert> = [];
 
           // Namespace path -> GitLab project id, for resolving description refs
           const pathToProjectId = new Map<string, number>();
@@ -254,7 +268,7 @@ export async function POST(request: NextRequest) {
                   // Log every command occurrence to the append-only history
                   // (deduplicated by unique index across repeated syncs)
                   for (const cmd of parseProgressCommands(note.body)) {
-                    progressHistoryToInsert.push({
+                    issueProgressHistoryToInsert.push({
                       projectId: config.id,
                       gitlabProjectId: gitlabProject.id,
                       issueIid: issue.iid,
@@ -419,6 +433,19 @@ export async function POST(request: NextRequest) {
                   addLink(targetId, ref.iid, "description_ref");
                 }
               }
+            }
+
+            // Parse tasks from issue description (all projects)
+            const parsedTasks = parseIssueTasks(issue.description);
+            for (const task of parsedTasks) {
+              issueTasksToInsert.push({
+                projectId: config.id,
+                gitlabProjectId: gitlabProject.id,
+                issueIid: issue.iid,
+                taskText: task.text,
+                assigneeUsername: task.assigneeUsername,
+                isCompleted: task.isCompleted,
+              });
             }
           }
 
@@ -609,15 +636,15 @@ export async function POST(request: NextRequest) {
           }
 
           // Batch insert progress history (append-only, dedup via unique index)
-          if (progressHistoryToInsert.length > 0) {
+          if (issueProgressHistoryToInsert.length > 0) {
             const BATCH_SIZE = 100;
-            for (let i = 0; i < progressHistoryToInsert.length; i += BATCH_SIZE) {
-              const batch = progressHistoryToInsert.slice(i, i + BATCH_SIZE);
+            for (let i = 0; i < issueProgressHistoryToInsert.length; i += BATCH_SIZE) {
+              const batch = issueProgressHistoryToInsert.slice(i, i + BATCH_SIZE);
               await db.insert(issueProgressHistory).values(batch).onConflictDoNothing();
             }
-            stats.progressHistoryRecorded += progressHistoryToInsert.length;
+            stats.progressHistoryRecorded += issueProgressHistoryToInsert.length;
             console.log(
-              `    Recorded ${progressHistoryToInsert.length} progress history entries`
+              `    Recorded ${issueProgressHistoryToInsert.length} progress history entries`
             );
           }
 
@@ -630,6 +657,22 @@ export async function POST(request: NextRequest) {
             }
             stats.issueLinksRecorded += issueLinksToInsert.length;
             console.log(`    Inserted ${issueLinksToInsert.length} issue links`);
+          }
+
+          // Upsert parsed tasks: delete old tasks for this project, then insert fresh
+          if (issueTasksToInsert.length > 0) {
+            // Delete all tasks for this config project (full refresh per sync)
+            await db
+              .delete(issueTasks)
+              .where(eq(issueTasks.projectId, config.id));
+
+            const BATCH_SIZE = 100;
+            for (let i = 0; i < issueTasksToInsert.length; i += BATCH_SIZE) {
+              const batch = issueTasksToInsert.slice(i, i + BATCH_SIZE);
+              await db.insert(issueTasks).values(batch);
+            }
+            stats.issueTasksRecorded += issueTasksToInsert.length;
+            console.log(`    Inserted ${issueTasksToInsert.length} parsed issue tasks`);
           }
         }
 

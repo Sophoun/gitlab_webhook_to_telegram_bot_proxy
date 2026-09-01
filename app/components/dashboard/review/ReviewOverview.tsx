@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { SyncDialog } from "../SyncDialog";
 import { ReviewHeader } from "./ReviewHeader";
@@ -10,11 +10,30 @@ import { BoardOverview } from "./BoardOverview";
 import { NeedsAttention } from "./NeedsAttention";
 import { WIP_LIMIT, type ReviewData } from "./types";
 import { ageDays, categorizeAttention } from "./attention";
-import { Download } from "lucide-react";
+import { Download, Trophy, ArrowRight } from "lucide-react";
+
+interface TopPerformer {
+  username: string;
+  name: string;
+  totalEvents: number;
+  performanceScore: number;
+  performanceGrade: "A" | "B" | "C" | "D" | "F";
+  performanceRole: "developer" | "coordinator" | "mixed";
+  issuesClosed: number;
+  commits: number;
+  mrsMerged: number;
+}
+
+const ROLE_LABELS: Record<string, string> = {
+  developer: "Developer",
+  coordinator: "Coordinator",
+  mixed: "Contributor",
+};
 
 /**
- * Issue Review page — board health: Kanban stage distribution, priorities,
- * problem tickets. Exports Needs Attention / All Issues / Board Summary.
+ * Analytics Dashboard home — board health: Kanban stage distribution,
+ * priorities, problem tickets, plus a top-performers snapshot.
+ * Exports Needs Attention / All Issues / Board Summary.
  */
 export function ReviewOverview() {
   const router = useRouter();
@@ -25,7 +44,9 @@ export function ReviewOverview() {
   const [review, setReview] = useState<ReviewData | null>(null);
   const [loading, setLoading] = useState(true);
   const [syncDialogOpen, setSyncDialogOpen] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [topPerformers, setTopPerformers] = useState<TopPerformer[]>([]);
 
   const fetchIssues = useCallback(async () => {
     try {
@@ -41,9 +62,37 @@ export function ReviewOverview() {
     }
   }, [repoParam]);
 
+  const fetchTopPerformers = useCallback(async () => {
+    try {
+      // Current week range
+      const now = new Date();
+      const day = now.getDay();
+      const from = new Date(now);
+      from.setDate(now.getDate() - day + (day === 0 ? -6 : 1));
+      from.setHours(0, 0, 0, 0);
+      const to = new Date(from);
+      to.setDate(from.getDate() + 7);
+      const repoQs = repoParam ? `&repo=${repoParam}` : "";
+      const res = await fetch(
+        `/api/tracker/team-week?from=${from.toISOString()}&to=${to.toISOString()}&period=week${repoQs}`
+      );
+      const data = await res.json();
+      if (!data.error) {
+        const top = (data.people || [])
+          .filter((p: TopPerformer) => p.totalEvents > 0)
+          .sort((a: TopPerformer, b: TopPerformer) => b.totalEvents - a.totalEvents)
+          .slice(0, 5);
+        setTopPerformers(top);
+      }
+    } catch (error) {
+      console.error("Failed to fetch top performers:", error);
+    }
+  }, [repoParam]);
+
   useEffect(() => {
     fetchIssues();
-  }, [fetchIssues]);
+    fetchTopPerformers();
+  }, [fetchIssues, fetchTopPerformers]);
 
   const issues = review?.issues || [];
   const attention = categorizeAttention(issues);
@@ -190,9 +239,8 @@ export function ReviewOverview() {
   return (
     <div className="p-6 space-y-6">
       <ReviewHeader
-        title="Issue Review"
-        subtitle="Board health across all repositories · issues from the main board"
-        onSynced={fetchIssues}
+        title="Dashboard"
+        subtitle="Board health across all repositories · top performers · issues needing attention"
       >
         <Button variant="outline" onClick={exportExcel} disabled={exporting || !review}>
           <Download className={`h-4 w-4 mr-2 ${exporting ? "animate-pulse" : ""}`} />
@@ -202,6 +250,56 @@ export function ReviewOverview() {
           Selective Sync
         </Button>
       </ReviewHeader>
+
+      {/* Health summary strip */}
+      {!loading && review && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Open Issues</CardDescription>
+              <CardTitle className="text-3xl">
+                {review.issues.filter((i) => i.state === "open").length}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="text-xs text-muted-foreground">
+              Total open issues on the board
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Needs Attention</CardDescription>
+              <CardTitle className="text-3xl text-orange-600">
+                {attention.reduce((sum, c) => sum + c.issues.length, 0)}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="text-xs text-muted-foreground">
+              Blocked or slow-moving tickets
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Closed Issues</CardDescription>
+              <CardTitle className="text-3xl text-emerald-700">
+                {review.issues.filter((i) => i.state === "closed").length}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="text-xs text-muted-foreground">
+              Issues resolved on the board
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Active Members</CardDescription>
+              <CardTitle className="text-3xl">
+                {review.people.length}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="text-xs text-muted-foreground">
+              Team members with assigned issues
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {loading ? (
         <Card>
@@ -221,6 +319,58 @@ export function ReviewOverview() {
             />
           )}
 
+          {/* Top Performers */}
+          {topPerformers.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Trophy className="h-4 w-4 text-yellow-500" /> Top Performers
+                </CardTitle>
+                <CardDescription>
+                  This week's most active contributors · click to view profile
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
+                  {topPerformers.map((p, i) => (
+                    <button
+                      key={p.username}
+                      onClick={() => router.push(`/review/people/${encodeURIComponent(p.username)}`)}
+                      className="text-left rounded-lg border p-3 hover:shadow-md transition-shadow hover:bg-muted/50"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-bold text-muted-foreground">#{i + 1}</span>
+                        <span
+                          className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium ${
+                            p.performanceRole === "developer"
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                              : p.performanceRole === "coordinator"
+                                ? "bg-blue-50 text-blue-700 border-blue-200"
+                                : "bg-gray-50 text-gray-600 border-gray-200"
+                          }`}
+                        >
+                          {ROLE_LABELS[p.performanceRole] || p.performanceRole}
+                        </span>
+                      </div>
+                      <div className="font-medium text-sm truncate">{p.name}</div>
+                      <div className="text-[10px] text-muted-foreground mb-2">@{p.username}</div>
+                      <div className="flex justify-between text-[10px] text-muted-foreground mt-1.5 pt-1.5 border-t">
+                        <span>{p.issuesClosed} closed</span>
+                        <span>{p.commits} commits</span>
+                        <span>{p.mrsMerged} MRs</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-3">
+                  <Button variant="ghost" size="sm" onClick={() => router.push("/review/team")}>
+                    View full leaderboard <ArrowRight className="h-3.5 w-3.5 ml-1" />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           <NeedsAttention
             issues={issues}
             onSelectIssue={(issue) => {
@@ -236,10 +386,38 @@ export function ReviewOverview() {
       <SyncDialog
         open={syncDialogOpen}
         onOpenChange={setSyncDialogOpen}
-        onSync={async () => {
-          await fetchIssues();
+        onSync={async (gitlabProjectIds, clean) => {
+          setSyncing(true);
+          try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10 * 60 * 1000); // 10 min timeout
+            const res = await fetch("/api/tracker/sync", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                gitlab_project_ids: gitlabProjectIds,
+                clean: clean ?? false,
+              }),
+              signal: controller.signal,
+            });
+            clearTimeout(timeoutId);
+            if (!res.ok) {
+              const data = await res.json();
+              console.error("Sync failed:", data.error || res.statusText);
+            }
+            await fetchIssues();
+            await fetchTopPerformers();
+          } catch (error) {
+            if (error instanceof DOMException && error.name === "AbortError") {
+              console.error("Sync timed out after 10 minutes");
+            } else {
+              console.error("Sync failed:", error);
+            }
+          } finally {
+            setSyncing(false);
+          }
         }}
-        syncing={false}
+        syncing={syncing}
       />
     </div>
   );

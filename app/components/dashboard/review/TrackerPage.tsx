@@ -68,7 +68,6 @@ export function TrackerPage() {
       <ReviewHeader
         title="Issue Tracker"
         subtitle="All issues across the board — search, filter, and drill into any task"
-        onSynced={fetchIssues}
       />
 
       {selectedIssue ? (
@@ -86,6 +85,9 @@ export function TrackerPage() {
               {loading
                 ? "Loading issues…"
                 : `${issues.length} issues · click any issue for its full story (timeline, collaborators, performance)`}
+            </CardDescription>
+            <CardDescription className="text-[11px] text-muted-foreground/70">
+              Stage chips show each issue's Kanban stage · status = Open/Closed · click a row to see the full detail
             </CardDescription>
           </CardHeader>
           <CardContent>

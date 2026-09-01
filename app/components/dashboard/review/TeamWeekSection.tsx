@@ -16,19 +16,13 @@ import {
 import {
   ChevronDown,
   ChevronRight,
-  CircleDot,
-  CheckCircle2,
   ListTodo,
-  MessageSquare,
   ExternalLink,
-  Gauge,
-  Users2,
-  GitMerge,
-  Code2,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
   Clock,
+  HelpCircle,
 } from "lucide-react";
 import { WORKFLOW_STAGES, STAGE_BADGE_CLASS, FALLBACK_STAGES } from "./types";
 
@@ -75,8 +69,14 @@ interface OpenTask {
   issueUrl: string | null;
   projectName: string;
   boardStage: string;
-  isAuthor: boolean;
   isAssignee: boolean;
+}
+
+interface AssignedTask {
+  gitlabProjectId: number;
+  issueIid: number;
+  taskText: string;
+  isCompleted: boolean;
 }
 
 interface PersonReport {
@@ -85,7 +85,7 @@ interface PersonReport {
   commentedOn: ItemRef[];
   mergedMrs: ItemRef[];
   openTasks: OpenTask[];
-  authoredOpenIssues: OpenTask[];
+  assignedTasks: AssignedTask[];
 }
 
 interface TeamWeekSectionProps {
@@ -106,35 +106,14 @@ type SortField =
   | "mrsMerged"
   | "commits"
   | "totalEvents"
-  | "lastActivityAt"
-  | "performanceScore";
-
-function DeltaIndicator({ current, previous }: { current: number; previous: number }) {
-  if (previous === 0 && current === 0) return null;
-  const diff = current - previous;
-  if (diff === 0) return null;
-  const pct = previous > 0 ? Math.round(((current - previous) / previous) * 100) : null;
-  const label =
-    pct !== null ? `${Math.abs(pct)}%` : current > 0 ? "new" : "↓";
-  return (
-    <span
-      className={`inline-flex items-center gap-0.5 text-[10px] ml-1 ${
-        diff > 0 ? "text-emerald-600" : "text-red-500"
-      }`}
-    >
-      {diff > 0 ? (
-        <ArrowUp className="h-2.5 w-2.5" />
-      ) : (
-        <ArrowDown className="h-2.5 w-2.5" />
-      )}
-      {label}
-    </span>
-  );
-}
+  | "lastActivityAt";
 
 function formatLastActive(iso: string | null): string {
   if (!iso) return "—";
-  const d = new Date(iso);
+  // Handle UNIX timestamps (all digits) — convert to ISO
+  const ts = /^\d+$/.test(iso) ? Number(iso) * 1000 : undefined;
+  const d = ts ? new Date(ts) : new Date(iso);
+  if (isNaN(d.getTime())) return "—";
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
   const mins = Math.floor(diffMs / 60000);
@@ -184,18 +163,10 @@ function SortHead({
   );
 }
 
-const GRADE_COLORS: Record<string, string> = {
-  A: "bg-emerald-100 text-emerald-800 border-emerald-300",
-  B: "bg-blue-100 text-blue-800 border-blue-300",
-  C: "bg-yellow-100 text-yellow-800 border-yellow-300",
-  D: "bg-orange-100 text-orange-800 border-orange-300",
-  F: "bg-red-100 text-red-800 border-red-300",
-};
-
 const ROLE_LABELS: Record<string, string> = {
-  developer: "DEV",
-  coordinator: "BIZ",
-  mixed: "MIX",
+  developer: "Developer",
+  coordinator: "Coordinator",
+  mixed: "Contributor",
 };
 
 const ROLE_COLORS: Record<string, string> = {
@@ -204,26 +175,58 @@ const ROLE_COLORS: Record<string, string> = {
   mixed: "bg-gray-50 text-gray-600 border-gray-200",
 };
 
-function ScoreCell({ person }: { person: PersonWeek }) {
+function getPerformanceSummary(p: PersonWeek): string {
+  const grade = p.performanceGrade;
+  const role = p.performanceRole;
+  const roleLabel = role === "developer" ? "developer" : role === "mixed" ? "contributor (code + issue management)" : "coordinator (issue management)";
+  const closed = p.issuesClosed;
+  const open = p.openTaskCount;
+  const mrs = p.mrsMerged;
+  const commits = p.commits;
+  const consistency = p.consistency;
+  const parts: string[] = [];
+
+  // Overall assessment
+  if (grade === "A") parts.push(`${p.name} is a top performer.`);
+  else if (grade === "B") parts.push(`${p.name} is a strong performer.`);
+  else if (grade === "C") parts.push(`${p.name} is a solid contributor.`);
+  else if (grade === "D") parts.push(`${p.name} has room for improvement.`);
+  else parts.push(`${p.name} is currently below expectations.`);
+
+  // Role
+  parts.push(`They work primarily as a ${roleLabel}.`);
+
+  // Delivery
+  if (closed > 0 && open > 0) parts.push(`Resolved ${closed} issues with ${open} still open.`);
+  else if (closed > 0) parts.push(`Resolved ${closed} issues this period.`);
+  else if (open > 0) parts.push(`${open} issues currently assigned.`);
+
+  // Code output (DEV/MIX only)
+  if (role === "developer" || role === "mixed") {
+    const codeParts: string[] = [];
+    if (mrs > 0) codeParts.push(`${mrs} MR${mrs !== 1 ? "s" : ""} merged`);
+    if (commits > 0) codeParts.push(`${commits} commit${commits !== 1 ? "s" : ""}`);
+    if (codeParts.length > 0) parts.push(`Code output: ${codeParts.join(" and ")}.`);
+  }
+
+  // Consistency
+  if (consistency >= 80) parts.push("Highly consistent activity.");
+  else if (consistency >= 50) parts.push("Moderately consistent.");
+  else if (consistency > 0) parts.push("Sporadic activity.");
+  else parts.push("No activity recorded this period.");
+
+  return parts.join(" ");
+}
+
+function RoleBadge({ person }: { person: PersonWeek }) {
   return (
-    <div className="flex items-center gap-1.5">
-      <span
-        className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border text-sm font-bold ${
-          GRADE_COLORS[person.performanceGrade] || "bg-gray-100 text-gray-600 border-gray-200"
-        }`}
-        title={`Score: ${person.performanceScore}/100`}
-      >
-        {person.performanceGrade}
-      </span>
-      <span className="text-xs text-muted-foreground">{person.performanceScore}</span>
-      <span
-        className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium ${
-          ROLE_COLORS[person.performanceRole] || "bg-gray-50 text-gray-600 border-gray-200"
-        }`}
-      >
-        {ROLE_LABELS[person.performanceRole] || person.performanceRole}
-      </span>
-    </div>
+    <span
+      className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium ${
+        ROLE_COLORS[person.performanceRole] || "bg-gray-50 text-gray-600 border-gray-200"
+      }`}
+    >
+      {ROLE_LABELS[person.performanceRole] || person.performanceRole}
+    </span>
   );
 }
 
@@ -244,6 +247,7 @@ export function TeamWeekSection({
   const [sortBy, setSortBy] = useState<SortField>("totalEvents");
   const [sortAsc, setSortAsc] = useState(false);
   const [search, setSearch] = useState("");
+  const [showLegend, setShowLegend] = useState(false);
 
   const sorted = useMemo(() => {
     return [...people].sort((a, b) => {
@@ -268,10 +272,6 @@ export function TeamWeekSection({
           return sortAsc ? a.mrsMerged - b.mrsMerged : b.mrsMerged - a.mrsMerged;
         case "commits":
           return sortAsc ? a.commits - b.commits : b.commits - a.commits;
-        case "performanceScore":
-          return sortAsc
-            ? a.performanceScore - b.performanceScore
-            : b.performanceScore - a.performanceScore;
         case "totalEvents":
         default:
           return sortAsc ? a.totalEvents - b.totalEvents : b.totalEvents - a.totalEvents;
@@ -288,6 +288,14 @@ export function TeamWeekSection({
         p.username.toLowerCase().includes(q)
     );
   }, [sorted, search]);
+
+  // Leaderboard rank by performance score (descending), independent of current sort
+  const rankMap = useMemo(() => {
+    const byScore = [...people].sort((a, b) => b.performanceScore - a.performanceScore);
+    const map = new Map<string, number>();
+    byScore.forEach((p, i) => map.set(p.username, i + 1));
+    return map;
+  }, [people]);
 
   const handleSort = (field: SortField) => {
     if (sortBy === field) {
@@ -370,6 +378,22 @@ export function TeamWeekSection({
         <CardDescription>
           {subtitle || "Click a person to see exactly what they worked on"}
         </CardDescription>
+        <button
+          onClick={() => setShowLegend(!showLegend)}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mt-1"
+        >
+          <HelpCircle className="h-3.5 w-3.5" />
+          {showLegend ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          What do these values mean?
+        </button>
+        {showLegend && (
+          <div className="mt-2 rounded-lg border bg-muted/30 p-3 text-xs space-y-1.5">
+            <p><span className="font-semibold">Role</span> — Developer (writes code), Coordinator (manages issues), Contributor (does both).</p>
+            <p><span className="font-semibold">Assigned Open</span> — how many open issues are currently assigned to this person.</p>
+            <p><span className="font-semibold">Last Active</span> — when they last did something in this period.</p>
+            <p className="text-muted-foreground/70">Click a person to see their open tasks by stage.</p>
+          </div>
+        )}
       </CardHeader>
       <CardContent>
         {loading ? (
@@ -398,61 +422,18 @@ export function TeamWeekSection({
               <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10 text-muted-foreground">#</TableHead>
                   <SortHead field="name" currentField={sortBy} currentAsc={sortAsc} onSort={handleSort}>
                     Person
                   </SortHead>
-                  <SortHead
-                    field="performanceScore"
-                    currentField={sortBy}
-                    currentAsc={sortAsc}
-                    onSort={handleSort}
-                  >
-                    Score
-                  </SortHead>
-                  <TableHead>
-                    <span className="inline-flex items-center gap-1">
-                      <Users2 className="h-3 w-3 text-muted-foreground" /> Contribution
-                    </span>
-                  </TableHead>
+                  <TableHead>Role</TableHead>
                   <SortHead
                     field="openTaskCount"
                     currentField={sortBy}
                     currentAsc={sortAsc}
                     onSort={handleSort}
                   >
-                    <ListTodo className="h-3 w-3 text-blue-500" /> Open Tasks
-                  </SortHead>
-                  <SortHead
-                    field="progressDelivered"
-                    currentField={sortBy}
-                    currentAsc={sortAsc}
-                    onSort={handleSort}
-                  >
-                    <Gauge className="h-3 w-3 text-orange-500" /> Progress
-                  </SortHead>
-                  <SortHead
-                    field="mrsMerged"
-                    currentField={sortBy}
-                    currentAsc={sortAsc}
-                    onSort={handleSort}
-                  >
-                    <GitMerge className="h-3 w-3 text-teal-600" /> MRs
-                  </SortHead>
-                  <SortHead
-                    field="commits"
-                    currentField={sortBy}
-                    currentAsc={sortAsc}
-                    onSort={handleSort}
-                  >
-                    <Code2 className="h-3 w-3 text-emerald-600" /> Commits
-                  </SortHead>
-                  <SortHead
-                    field="totalEvents"
-                    currentField={sortBy}
-                    currentAsc={sortAsc}
-                    onSort={handleSort}
-                  >
-                    Total
+                    <ListTodo className="h-3 w-3 text-blue-500" /> Assigned Open
                   </SortHead>
                   <SortHead
                     field="lastActivityAt"
@@ -480,6 +461,9 @@ export function TeamWeekSection({
                       role="button"
                       aria-expanded={expanded === p.username}
                     >
+                      <TableCell className="text-muted-foreground font-medium">
+                        {rankMap.get(p.username) || "—"}
+                      </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
                           {expanded === p.username ? (
@@ -527,41 +511,17 @@ export function TeamWeekSection({
                         </div>
                       </TableCell>
                       <TableCell>
-                        <ScoreCell person={p} />
-                      </TableCell>
-                      <TableCell>
-                        <ContributionMixBar person={p} />
+                        <RoleBadge person={p} />
                       </TableCell>
                       <TableCell className="text-right font-medium">
                         <span
                           className={
                             p.openTaskCount > 0 ? "text-blue-600" : "text-muted-foreground"
                           }
-                          title="Open issues authored or assigned to this person, across all repos"
+                          title="Open issues assigned to this person, across all repos"
                         >
                           {p.openTaskCount}
                         </span>
-                      </TableCell>
-                      <TableCell className="text-right font-medium">
-                        <span
-                          className={
-                            p.progressDelivered > 0 ? "text-orange-600" : "text-muted-foreground"
-                          }
-                        >
-                          +{p.progressDelivered}%
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-right font-medium text-teal-700">
-                        {p.mrsMerged}
-                        <DeltaIndicator current={p.mrsMerged} previous={p.prevMrsMerged} />
-                      </TableCell>
-                      <TableCell className="text-right font-medium text-emerald-700">
-                        {p.commits}
-                        <DeltaIndicator current={p.commits} previous={p.prevCommits} />
-                      </TableCell>
-                      <TableCell className="text-right font-medium text-muted-foreground">
-                        {p.totalEvents}
-                        <DeltaIndicator current={p.totalEvents} previous={p.prevTotalEvents} />
                       </TableCell>
                       <TableCell className="text-right text-xs text-muted-foreground whitespace-nowrap">
                         {formatLastActive(p.lastActivityAt)}
@@ -570,7 +530,7 @@ export function TeamWeekSection({
 
                     {expanded === p.username && (
                       <TableRow>
-                        <TableCell colSpan={9} className="bg-muted/30 p-4">
+                        <TableCell colSpan={5} className="bg-muted/30 p-4">
                           {detailLoading ? (
                             <p className="text-sm text-muted-foreground py-2">Loading details...</p>
                           ) : detailError ? (
@@ -589,6 +549,11 @@ export function TeamWeekSection({
                             </p>
                           ) : (
                             <div className="space-y-4">
+                              {/* Plain-language summary */}
+                              <p className="text-sm text-muted-foreground leading-relaxed">
+                                {getPerformanceSummary(p)}
+                              </p>
+
                               <div>
                                 <p className="text-xs font-medium text-muted-foreground mb-2">
                                   Open tasks across all projects
@@ -643,132 +608,32 @@ export function TeamWeekSection({
                                 )}
                               </div>
 
-                              {/* Authored open issues (not assigned to this person) */}
-                              {(detail.authoredOpenIssues || []).length > 0 && (() => {
-                                const authored = detail.authoredOpenIssues;
-                                const authGroups: Array<{ stage: string; items: typeof authored }> = [];
-                                for (const stage of WORKFLOW_STAGES) {
-                                  const items = authored.filter((t) => t.boardStage === stage);
-                                  if (items.length > 0) authGroups.push({ stage, items });
-                                }
-                                const authMatched = new Set(authGroups.flatMap((g) => g.items.map((t) => `${t.gitlabProjectId}-${t.issueIid}`)));
-                                const authUnmatched = authored.filter((t) => !authMatched.has(`${t.gitlabProjectId}-${t.issueIid}`));
-                                if (authUnmatched.length > 0) authGroups.push({ stage: "Opened", items: authUnmatched });
-
-                                return (
-                                  <div className="pt-2 border-t">
-                                    <p className="text-xs font-medium text-muted-foreground mb-2">
-                                      Authored open issues ({authored.length})
-                                      <span className="ml-1 text-muted-foreground/60">· created but not assigned to you</span>
-                                    </p>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                                      {authGroups.map((group) => (
-                                        <div
-                                          key={`auth-${group.stage}`}
-                                          className={`rounded-lg border p-2.5 ${
-                                            STAGE_BADGE_CLASS[group.stage] || "border-border"
-                                          }`}
-                                        >
-                                          <p className="text-xs font-semibold mb-1.5">
-                                            {group.stage} ({group.items.length})
-                                          </p>
-                                          <div className="space-y-1">
-                                            {group.items.map((item) => (
-                                              <div
-                                                key={`auth-${item.gitlabProjectId}-${item.issueIid}`}
-                                                className="flex items-center gap-1.5 text-sm min-w-0"
-                                              >
-                                                <span className="text-muted-foreground shrink-0 text-xs">
-                                                  #{item.issueIid}
-                                                </span>
-                                                <span className="truncate">{item.issueTitle}</span>
-                                                {item.projectName && (
-                                                  <span className="text-[10px] text-muted-foreground shrink-0 truncate max-w-[100px]">
-                                                    {item.projectName}
-                                                  </span>
-                                                )}
-                                                {item.issueUrl && (
-                                                  <a
-                                                    href={item.issueUrl}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="text-muted-foreground hover:text-foreground shrink-0"
-                                                  >
-                                                    <ExternalLink className="h-3 w-3" />
-                                                  </a>
-                                                )}
-                                              </div>
-                                            ))}
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
+                              {/* Assigned checklist tasks */}
+                              {detail.assignedTasks && detail.assignedTasks.length > 0 && (
+                                <div className="pt-2 border-t">
+                                  <p className="text-xs font-medium text-muted-foreground mb-2">
+                                    Assigned Tasks ({detail.assignedTasks.length})
+                                  </p>
+                                  <div className="space-y-1">
+                                    {detail.assignedTasks.map((task, i) => (
+                                      <div
+                                        key={`${task.gitlabProjectId}-${task.issueIid}-${i}`}
+                                        className="flex items-center gap-2 text-sm"
+                                      >
+                                        <span className={`shrink-0 ${task.isCompleted ? "text-green-600" : "text-muted-foreground"}`}>
+                                          {task.isCompleted ? "☑" : "☐"}
+                                        </span>
+                                        <span className={task.isCompleted ? "line-through text-muted-foreground" : ""}>
+                                          {task.taskText}
+                                        </span>
+                                        <span className="text-[10px] text-muted-foreground shrink-0">
+                                          #{task.issueIid}
+                                        </span>
+                                      </div>
+                                    ))}
                                   </div>
-                                );
-                              })()}
-
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2 border-t">
-                                <div className="text-center">
-                                  <p className="text-lg font-bold">
-                                    {p.avgCycleTimeHours !== null ? (
-                                      p.avgCycleTimeHours < 24
-                                        ? `${Math.round(p.avgCycleTimeHours)}h`
-                                        : `${Math.floor(p.avgCycleTimeHours / 24)}d ${Math.round(p.avgCycleTimeHours % 24)}h`
-                                    ) : "—"}
-                                  </p>
-                                  <p className="text-[10px] text-muted-foreground">Avg Cycle Time</p>
                                 </div>
-                                <div className="text-center">
-                                  <p className="text-lg font-bold">
-                                    {p.avgFirstResponseHours !== null ? (
-                                      p.avgFirstResponseHours < 24
-                                        ? `${Math.round(p.avgFirstResponseHours)}h`
-                                        : `${Math.floor(p.avgFirstResponseHours / 24)}d ${Math.round(p.avgFirstResponseHours % 24)}h`
-                                    ) : "—"}
-                                  </p>
-                                  <p className="text-[10px] text-muted-foreground">Avg First Response</p>
-                                </div>
-                                <div className="text-center">
-                                  <p className="text-lg font-bold">
-                                    {p.issuesReopened > 0 ? (
-                                      <span className="text-orange-600">{p.issuesReopened}×</span>
-                                    ) : (
-                                      <span className="text-muted-foreground">—</span>
-                                    )}
-                                  </p>
-                                  <p className="text-[10px] text-muted-foreground">Rework (Reopened)</p>
-                                </div>
-                                <div className="text-center">
-                                  <p className={`text-lg font-bold ${p.consistency >= 70 ? "text-emerald-600" : p.consistency >= 40 ? "text-yellow-600" : "text-red-500"}`}>
-                                    {p.consistency}%
-                                  </p>
-                                  <p className="text-[10px] text-muted-foreground">Consistency ({p.daysActive}/{p.totalDays} days)</p>
-                                </div>
-                              </div>
-
-                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t">
-                                <div>
-                                  <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
-                                    <CheckCircle2 className="h-3 w-3 text-green-600" />
-                                    Closed ({detail.closedIssues.length})
-                                  </p>
-                                  <DetailList items={detail.closedIssues} empty="Nothing closed" />
-                                </div>
-                                <div>
-                                  <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
-                                    <CircleDot className="h-3 w-3 text-blue-500" />
-                                    Created ({detail.createdIssues.length})
-                                  </p>
-                                  <DetailList items={detail.createdIssues} empty="Nothing created" />
-                                </div>
-                                <div>
-                                  <p className="text-xs font-medium text-muted-foreground mb-2 flex items-center gap-1">
-                                    <MessageSquare className="h-3 w-3 text-purple-500" />
-                                    Commented on ({detail.commentedOn.length})
-                                  </p>
-                                  <DetailList items={detail.commentedOn} empty="No comments" />
-                                </div>
-                              </div>
+                              )}
                             </div>
                           )}
                         </TableCell>
@@ -783,84 +648,5 @@ export function TeamWeekSection({
         )}
       </CardContent>
     </Card>
-  );
-}
-
-function ContributionMixBar({ person }: { person: PersonWeek }) {
-  const coordination = person.issuesCreated;
-  const delivery = person.issuesClosed;
-  const code = person.commits + person.mrsMerged + person.mrsCreated;
-  const total = coordination + delivery + code;
-
-  if (total === 0) {
-    if (person.openTaskCount > 0) {
-      return (
-        <div className="min-w-[110px]" title={`${person.openTaskCount} tasks assigned — no activity in this period`}>
-          <div className="flex h-2 w-full rounded-full overflow-hidden bg-muted">
-            <div className="bg-gray-300 w-full" />
-          </div>
-          <span className="text-[10px] text-muted-foreground mt-0.5 block">
-            {person.openTaskCount} tasks assigned
-          </span>
-        </div>
-      );
-    }
-    return <span className="text-xs text-muted-foreground">—</span>;
-  }
-
-  const pct = (n: number) => Math.round((n / total) * 100);
-  const coordinationPct = pct(coordination);
-  const deliveryPct = pct(delivery);
-  const codePct = 100 - coordinationPct - deliveryPct;
-
-  let focus = "Mixed";
-  if (codePct >= 60) focus = "Code";
-  else if (coordinationPct >= 60) focus = "Coordination";
-  else if (deliveryPct >= 60) focus = "Delivery";
-
-  const tooltip = `Coordination ${coordinationPct}% (created) · Delivery ${deliveryPct}% (closed) · Code ${codePct}% (commits+MRs)`;
-
-  return (
-    <div className="min-w-[110px]" title={tooltip}>
-      <div className="flex h-2 w-full rounded-full overflow-hidden bg-muted">
-        <div className="bg-blue-500" style={{ width: `${coordinationPct}%` }} />
-        <div className="bg-orange-500" style={{ width: `${deliveryPct}%` }} />
-        <div className="bg-emerald-500" style={{ width: `${codePct}%` }} />
-      </div>
-      <span className="text-[10px] text-muted-foreground mt-0.5 block">{focus}</span>
-    </div>
-  );
-}
-
-function DetailList({ items, empty }: { items: ItemRef[]; empty: string }) {
-  if (items.length === 0) {
-    return <p className="text-sm text-muted-foreground">{empty}</p>;
-  }
-  return (
-    <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
-      {items.map((item, i) => (
-        <div key={`${item.itemIid}-${i}`} className="flex items-center gap-2 text-sm min-w-0">
-          <Badge variant="outline" className="text-[10px] shrink-0">
-            #{item.itemIid}
-          </Badge>
-          <span className="truncate">{item.itemTitle || "Untitled"}</span>
-          {item.projectName && (
-            <span className="text-[10px] text-muted-foreground shrink-0 truncate max-w-[100px]">
-              {item.projectName}
-            </span>
-          )}
-          {item.itemUrl && (
-            <a
-              href={item.itemUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-muted-foreground hover:text-foreground shrink-0"
-            >
-              <ExternalLink className="h-3 w-3" />
-            </a>
-          )}
-        </div>
-      ))}
-    </div>
   );
 }

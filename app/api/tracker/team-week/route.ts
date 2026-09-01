@@ -47,6 +47,7 @@ async function fetchPeriodData(
   repoId: number | null
 ) {
   const mainFilter = repoId !== null ? eq(userActivity.gitlabProjectId, repoId) : undefined;
+  const issueFilter = repoId !== null ? eq(issueAnalytics.gitlabProjectId, repoId) : undefined;
 
   const rows = await db
     .select({
@@ -88,12 +89,6 @@ async function fetchPeriodData(
       map.set(r.userUsername, p);
     }
     switch (r.activityType) {
-      case "issue_created":
-        p.issuesCreated++;
-        break;
-      case "issue_closed":
-        p.issuesClosed++;
-        break;
       case "issue_reopened":
         p.issuesReopened++;
         break;
@@ -123,6 +118,41 @@ async function fetchPeriodData(
     }
     map.set(r.userUsername, p);
   }
+
+  // Assignee-based issue counts: issues are attributed to the person whose
+  // name is on the assignee field — NOT who created or moved them.
+  const createdIssueRows = await db
+    .select({ assigneeUsernames: issueAnalytics.assigneeUsernames })
+    .from(issueAnalytics)
+    .where(
+      and(
+        gte(issueAnalytics.createdAt, from),
+        lte(issueAnalytics.createdAt, to),
+        issueFilter
+      )
+    );
+
+  const closedIssueRows = await db
+    .select({ assigneeUsernames: issueAnalytics.assigneeUsernames })
+    .from(issueAnalytics)
+    .where(
+      and(
+        gte(issueAnalytics.closedAt, from),
+        lte(issueAnalytics.closedAt, to),
+        issueFilter
+      )
+    );
+
+  const assigneeCreated = new Map<string, number>();
+  const assigneeClosed = new Map<string, number>();
+  const credit = (target: Map<string, number>, assignees: string | null) => {
+    for (const a of (assignees || "").split(",")) {
+      const t = a.trim();
+      if (t) target.set(t, (target.get(t) || 0) + 1);
+    }
+  };
+  for (const r of createdIssueRows) credit(assigneeCreated, r.assigneeUsernames);
+  for (const r of closedIssueRows) credit(assigneeClosed, r.assigneeUsernames);
 
   const people = Array.from(map.values()).sort(
     (a, b) => b.totalEvents - a.totalEvents
@@ -195,8 +225,8 @@ async function fetchPeriodData(
     return {
       username: p.username,
       name: p.name,
-      issuesCreated: p.issuesCreated,
-      issuesClosed: p.issuesClosed,
+      issuesCreated: assigneeCreated.get(p.username) || 0,
+      issuesClosed: assigneeClosed.get(p.username) || 0,
       issuesReopened: p.issuesReopened,
       mrsCreated: p.mrsCreated,
       mrsMerged: p.mrsMerged,

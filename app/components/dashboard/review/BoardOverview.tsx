@@ -41,7 +41,9 @@ export function BoardOverview({
           <Columns3 className="h-4 w-4" />
           Board Overview
         </CardTitle>
-        <CardDescription>All issues mapped to your Kanban workflow</CardDescription>
+        <CardDescription>
+          How many issues sit in each Kanban stage right now
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         {/* Kanban stage strip */}
@@ -64,7 +66,10 @@ export function BoardOverview({
           <div>
             <p className="text-sm font-medium mb-2 flex items-center gap-1.5">
               <Flag className="h-3.5 w-3.5" />
-              Open by Priority
+              Open Issues by Priority
+              <span className="text-[10px] font-normal text-muted-foreground" title="P0 = urgent, P3 = low priority">
+                (P0 = urgent)
+              </span>
             </p>
             <div className="flex flex-wrap gap-2">
               {priorityBreakdown.map((p) => (
@@ -81,7 +86,10 @@ export function BoardOverview({
           <div>
             <p className="text-sm font-medium mb-2 flex items-center gap-1.5">
               <UsersRound className="h-3.5 w-3.5" />
-              Open by Team
+              Open Issues by Squad
+              <span className="text-[10px] font-normal text-muted-foreground" title="Grouped by the team label on each issue">
+                (team label)
+              </span>
             </p>
             <div className="flex flex-wrap gap-2">
               {teamBreakdown.length === 0 ? (
@@ -132,8 +140,8 @@ export function BoardOverview({
         )}
 
         <p className="text-xs text-muted-foreground">
-          WIP limit is {WIP_LIMIT} per person — people exceeding it are flagged in the
-          table below.
+          WIP limit is {WIP_LIMIT} per person — people with more than {WIP_LIMIT} open
+          &ldquo;In Progress&rdquo; issues are flagged in the Needs Attention section below.
         </p>
       </CardContent>
     </Card>

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { userActivity, issueAnalytics, gitlabRepos } from "@/db/schema";
-import { and, eq, gte, lte, asc, like, or } from "drizzle-orm";
+import { userActivity, issueAnalytics, issueTasks, gitlabRepos } from "@/db/schema";
+import { and, eq, gte, lte, asc, like } from "drizzle-orm";
 import { parseBoardLabels } from "@/app/components/dashboard/review/types";
 
 interface ActivityRow {
@@ -57,6 +57,8 @@ export async function GET(request: NextRequest) {
     const repoId = repoParam && !isNaN(parseInt(repoParam)) ? parseInt(repoParam) : null;
     const mainFilter =
       repoId !== null ? eq(userActivity.gitlabProjectId, repoId) : undefined;
+    const issueFilter =
+      repoId !== null ? eq(issueAnalytics.gitlabProjectId, repoId) : undefined;
 
     const rows: ActivityRow[] = await db
       .select({
@@ -87,13 +89,91 @@ export async function GET(request: NextRequest) {
           .limit(1)
       )[0]?.name ?? user;
 
+    // ---- Assignee-based issue lists ----
+    // Issues are attributed to the person whose name is on the assignee
+    // field — NOT who created or moved them.
+    const repoNames = new Map(
+      (await db.select({ id: gitlabRepos.id, name: gitlabRepos.name }).from(gitlabRepos))
+        .map((r) => [r.id, r.name])
+    );
+
+    const userLower = user.toLowerCase();
+
+    const assignedCreatedRows = await db
+      .select({
+        gitlabProjectId: issueAnalytics.gitlabProjectId,
+        issueIid: issueAnalytics.issueIid,
+        issueTitle: issueAnalytics.issueTitle,
+        issueUrl: issueAnalytics.issueUrl,
+        assigneeUsernames: issueAnalytics.assigneeUsernames,
+        createdAt: issueAnalytics.createdAt,
+      })
+      .from(issueAnalytics)
+      .where(
+        and(
+          gte(issueAnalytics.createdAt, from),
+          lte(issueAnalytics.createdAt, to),
+          like(issueAnalytics.assigneeUsernames, `%${userLower}%`),
+          issueFilter
+        )
+      );
+
+    const assignedClosedRows = await db
+      .select({
+        gitlabProjectId: issueAnalytics.gitlabProjectId,
+        issueIid: issueAnalytics.issueIid,
+        issueTitle: issueAnalytics.issueTitle,
+        issueUrl: issueAnalytics.issueUrl,
+        assigneeUsernames: issueAnalytics.assigneeUsernames,
+        closedAt: issueAnalytics.closedAt,
+      })
+      .from(issueAnalytics)
+      .where(
+        and(
+          gte(issueAnalytics.closedAt, from),
+          lte(issueAnalytics.closedAt, to),
+          like(issueAnalytics.assigneeUsernames, `%${userLower}%`),
+          issueFilter
+        )
+      );
+
+    const isAssignee = (assignees: string | null): boolean =>
+      (assignees || "")
+        .split(",")
+        .map((a) => a.trim())
+        .includes(userLower);
+
+    const toAssignedItem = (
+      r: { gitlabProjectId: number; issueIid: number; issueTitle: string | null; issueUrl: string | null },
+      occurredAt: Date
+    ) => ({
+      itemIid: r.issueIid,
+      itemTitle: r.issueTitle,
+      itemUrl: r.issueUrl,
+      projectName: repoNames.get(r.gitlabProjectId) ?? String(r.gitlabProjectId),
+      occurredAt: occurredAt.toISOString(),
+    });
+
+    // Closed issues first, so we can deduplicate Created against them
+    const closedIssues = assignedClosedRows
+      .filter((r) => isAssignee(r.assigneeUsernames))
+      .map((r) => toAssignedItem(r, new Date(r.closedAt!)));
+
+    // Created issues: exclude any that also appear in Closed (same project+iid)
+    // so issues the person both created AND closed only show under "Closed"
+    const closedSet = new Set(closedIssues.map((i) => `${i.projectName}-${i.itemIid}`));
+    const createdIssues = assignedCreatedRows
+      .filter((r) => isAssignee(r.assigneeUsernames))
+      .map((r) => toAssignedItem(r, new Date(r.createdAt)))
+      .filter((i) => !closedSet.has(`${i.projectName}-${i.itemIid}`));
+
     // ---- Summary counts ----
     const count = (type: string): number =>
       rows.filter((r) => r.activityType === type).length;
 
     const summary = {
-      issuesCreated: count("issue_created"),
-      issuesClosed: count("issue_closed"),
+      issuesCreated: createdIssues.length,
+      issuesClosed: closedIssues.length,
       issuesReopened: count("issue_reopened"),
       issueComments: count("issue_comment"),
       mrsCreated: count("mr_created"),
@@ -114,16 +194,6 @@ export async function GET(request: NextRequest) {
     });
 
     const byType = (type: string) => rows.filter((r) => r.activityType === type).map(toItem);
-
-    // Closed issues first, so we can deduplicate Created against them
-    const closedIssues = byType("issue_closed");
-
-    // Created issues: exclude any that also appear in Closed (same project+iid)
-    // so issues the person both created AND closed only show under "Closed"
-    const closedSet = new Set(closedIssues.map((i) => `${i.projectName}-${i.itemIid}`));
-    const createdIssues = byType("issue_created").filter(
-      (i) => !closedSet.has(`${i.projectName}-${i.itemIid}`)
-    );
 
     // Commented-on: dedupe by project+iid across issue & MR comments
     const seenComments = new Set<string>();
@@ -152,14 +222,12 @@ export async function GET(request: NextRequest) {
     }));
 
     // ---- Open tasks across ALL projects ----
-    // Every open issue in any synced repo where the person is the author or
-    // an assignee — the full cross-project workload, not just the main board.
+    // Every open issue in any synced repo where the person is an assignee —
+    // the full cross-project workload, not just the main board.
+    // Attribution is assignee-only: issues the person merely created (but is
+    // not assigned to) are NOT included.
     // LIKE is only a prefilter; assignees are comma-separated so an exact
     // token check in JS prevents partial-username matches.
-    const repoNames = new Map(
-      (await db.select({ id: gitlabRepos.id, name: gitlabRepos.name }).from(gitlabRepos))
-        .map((r) => [r.id, r.name])
-    );
     const openTaskRows = await db
       .select({
         gitlabProjectId: issueAnalytics.gitlabProjectId,
@@ -167,17 +235,14 @@ export async function GET(request: NextRequest) {
         issueTitle: issueAnalytics.issueTitle,
         issueUrl: issueAnalytics.issueUrl,
         labels: issueAnalytics.labels,
-        authorUsername: issueAnalytics.authorUsername,
         assigneeUsernames: issueAnalytics.assigneeUsernames,
+        createdAt: issueAnalytics.createdAt,
       })
       .from(issueAnalytics)
       .where(
         and(
           eq(issueAnalytics.state, "opened"),
-          or(
-            eq(issueAnalytics.authorUsername, user.toLowerCase()),
-            like(issueAnalytics.assigneeUsernames, `%${user.toLowerCase()}%`)
-          )
+          like(issueAnalytics.assigneeUsernames, `%${user.toLowerCase()}%`)
         )
       );
 
@@ -188,38 +253,44 @@ export async function GET(request: NextRequest) {
       issueUrl: string | null;
       projectName: string;
       boardStage: string;
-      isAuthor: boolean;
       isAssignee: boolean;
-    }> = [];
-    const authoredOpenIssues: Array<{
-      gitlabProjectId: number;
-      issueIid: number;
-      issueTitle: string | null;
-      issueUrl: string | null;
-      projectName: string;
-      boardStage: string;
+      createdAt: string | null;
     }> = [];
 
     for (const r of openTaskRows) {
       const assignees = (r.assigneeUsernames || "").split(",").map((a) => a.trim());
       const isAssignee = assignees.includes(user.toLowerCase());
-      const isAuthor = r.authorUsername === user.toLowerCase();
-      const item = {
+      if (!isAssignee) continue;
+      openTasks.push({
         gitlabProjectId: r.gitlabProjectId,
         issueIid: r.issueIid,
         issueTitle: r.issueTitle,
         issueUrl: r.issueUrl,
         projectName: repoNames.get(r.gitlabProjectId) ?? String(r.gitlabProjectId),
         boardStage: parseBoardLabels(r.labels, "open").boardStage,
-      };
-      if (isAssignee) {
-        openTasks.push({ ...item, isAuthor, isAssignee });
-      } else if (isAuthor) {
-        authoredOpenIssues.push(item);
-      }
+        isAssignee,
+        createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : null,
+      });
     }
     openTasks.sort((a, b) => a.issueIid - b.issueIid);
-    authoredOpenIssues.sort((a, b) => a.issueIid - b.issueIid);
+
+    // Fetch assigned checklist tasks from issue descriptions
+    const taskRows = await db
+      .select({
+        gitlabProjectId: issueTasks.gitlabProjectId,
+        issueIid: issueTasks.issueIid,
+        taskText: issueTasks.taskText,
+        isCompleted: issueTasks.isCompleted,
+      })
+      .from(issueTasks)
+      .where(eq(issueTasks.assigneeUsername, user.toLowerCase()));
+
+    const assignedTasks = taskRows.map((t) => ({
+      gitlabProjectId: t.gitlabProjectId,
+      issueIid: t.issueIid,
+      taskText: t.taskText,
+      isCompleted: !!t.isCompleted,
+    }));
 
     return NextResponse.json({
       user: { username: user, name: displayName },
@@ -233,7 +304,7 @@ export async function GET(request: NextRequest) {
       mergedMrs: byType("mr_merged"),
       commits: byType("commit"),
       openTasks,
-      authoredOpenIssues,
+      assignedTasks,
       dailyActivity,
     });
   } catch (error) {

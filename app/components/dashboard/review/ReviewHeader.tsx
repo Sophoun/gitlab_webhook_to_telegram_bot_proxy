@@ -2,8 +2,6 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { RefreshCw } from "lucide-react";
 import type { RepoInfo } from "./types";
 
 interface ReviewHeaderProps {
@@ -11,16 +9,13 @@ interface ReviewHeaderProps {
   subtitle: string;
   /** Extra page-specific controls (period nav, export, …) rendered beside the repo selector */
   children?: React.ReactNode;
-  /** Called after a successful sync so the page can refetch its data */
-  onSynced?: () => void;
 }
 
 /**
  * Shared header across the Issue Review pages: repo scope selector (persisted
- * in the ?repo= URL param so it survives navigation between pages) and the
- * Sync button.
+ * in the ?repo= URL param so it survives navigation between pages).
  */
-export function ReviewHeader({ title, subtitle, children, onSynced }: ReviewHeaderProps) {
+export function ReviewHeader({ title, subtitle, children }: ReviewHeaderProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -29,7 +24,6 @@ export function ReviewHeader({ title, subtitle, children, onSynced }: ReviewHead
   const repoParam = selectedRepo && !isNaN(parseInt(selectedRepo)) ? selectedRepo : null;
 
   const [repos, setRepos] = useState<RepoInfo[]>([]);
-  const [syncing, setSyncing] = useState(false);
 
   const fetchRepos = useCallback(async () => {
     try {
@@ -50,23 +44,6 @@ export function ReviewHeader({ title, subtitle, children, onSynced }: ReviewHead
     if (value) params.set("repo", value);
     else params.delete("repo");
     router.replace(`${pathname}?${params.toString()}`);
-  };
-
-  const handleSync = async () => {
-    setSyncing(true);
-    try {
-      await fetch("/api/tracker/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      await fetchRepos();
-      onSynced?.();
-    } catch (error) {
-      console.error("Sync failed:", error);
-    } finally {
-      setSyncing(false);
-    }
   };
 
   return (
@@ -99,11 +76,6 @@ export function ReviewHeader({ title, subtitle, children, onSynced }: ReviewHead
         </select>
 
         {children}
-
-        <Button variant="outline" onClick={handleSync} disabled={syncing}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? "animate-spin" : ""}`} />
-          {syncing ? "Syncing..." : "Sync"}
-        </Button>
       </div>
     </div>
   );

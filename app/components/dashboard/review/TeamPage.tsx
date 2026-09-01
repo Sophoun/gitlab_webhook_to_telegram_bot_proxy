@@ -236,10 +236,6 @@ export function TeamPage() {
       <ReviewHeader
         title="Who Did What"
         subtitle="Team activity across all repositories"
-        onSynced={() => {
-          fetchTeam();
-          fetchReview();
-        }}
       >
         {/* Period selector */}
         <div className="flex items-center rounded-lg border overflow-hidden">

@@ -41,6 +41,8 @@ export interface ReviewIssue {
   type: string | null;
   // Child issues linked from other GitLab projects
   linkedIssues: LinkedIssueInfo[];
+  // Task assignees from issue descriptions (checklist items with @username)
+  taskAssignees?: string[];
 }
 
 // The team's Kanban workflow, in board order

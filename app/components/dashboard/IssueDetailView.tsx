@@ -547,45 +547,96 @@ export function IssueDetailView({
         </Card>
       </div>
 
-      {/* Collaboration */}
-      {issue.uniqueCommenters && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Users className="h-4 w-4" />
-              People Involved
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-2">
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10">
-                <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center">
-                  <span className="text-xs font-medium">
-                    {issue.authorName.charAt(0).toUpperCase()}
-                  </span>
-                </div>
-                <span className="text-sm font-medium">{issue.authorName}</span>
-                <Badge variant="secondary" className="text-[10px]">
-                  author
-                </Badge>
+      {/* People Involved */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Users className="h-4 w-4" />
+            People Involved
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap gap-2">
+            {/* Author */}
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10">
+              <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center">
+                <span className="text-xs font-medium">
+                  {issue.authorName.charAt(0).toUpperCase()}
+                </span>
               </div>
-              {issue.uniqueCommenters
+              <span className="text-sm font-medium">{issue.authorName}</span>
+              <Badge variant="secondary" className="text-[10px]">
+                author
+              </Badge>
+            </div>
+            {/* Assignees */}
+            {issue.assigneeUsernames &&
+              issue.assigneeUsernames
+                .split(",")
+                .map((a) => a.trim())
+                .filter(Boolean)
+                .filter((a) => a !== issue.authorUsername)
+                .map((assignee, i) => (
+                  <div key={`assignee-${i}`} className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-50 border border-blue-200">
+                    <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center">
+                      <span className="text-xs font-medium">
+                        {assignee.charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                    <span className="text-sm">@{assignee}</span>
+                    <Badge variant="secondary" className="text-[10px] bg-blue-100 text-blue-700">
+                      assignee
+                    </Badge>
+                  </div>
+                ))}
+            {/* Commenters */}
+            {issue.uniqueCommenters &&
+              issue.uniqueCommenters
                 .split(",")
                 .filter((c) => c.trim() && c.trim() !== issue.authorUsername)
+                .filter((c) => {
+                  // Don't duplicate assignees
+                  const assignees = (issue.assigneeUsernames || "").split(",").map((a) => a.trim());
+                  return !assignees.includes(c.trim());
+                })
                 .map((commenter, i) => (
-                  <div key={i} className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted">
+                  <div key={`commenter-${i}`} className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted">
                     <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center">
                       <span className="text-xs font-medium">
                         {commenter.trim().charAt(0).toUpperCase()}
                       </span>
                     </div>
                     <span className="text-sm">@{commenter.trim()}</span>
+                    <Badge variant="outline" className="text-[10px]">
+                      commenter
+                    </Badge>
                   </div>
                 ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+            {/* Task assignees from checklist items */}
+            {issue.taskAssignees &&
+              issue.taskAssignees
+                .filter((a) => {
+                  // Don't duplicate author, assignees, or commenters
+                  const assignees = (issue.assigneeUsernames || "").split(",").map((u) => u.trim());
+                  const commenters = (issue.uniqueCommenters || "").split(",").map((u) => u.trim());
+                  return a !== issue.authorUsername && !assignees.includes(a) && !commenters.includes(a);
+                })
+                .map((taskUser, i) => (
+                  <div key={`task-${i}`} className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-purple-50 border border-purple-200">
+                    <div className="w-6 h-6 rounded-full bg-purple-100 flex items-center justify-center">
+                      <span className="text-xs font-medium">
+                        {taskUser.charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                    <span className="text-sm">@{taskUser}</span>
+                    <Badge variant="secondary" className="text-[10px] bg-purple-100 text-purple-700">
+                      task assignee
+                    </Badge>
+                  </div>
+                ))}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Labels */}
       {issue.labels && (

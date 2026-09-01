@@ -6,9 +6,10 @@ import {
   projects,
   issueProgress,
   issueLinks,
+  issueTasks,
   gitlabRepos,
 } from "@/db/schema";
-import { and, eq, gte, desc, inArray, sql, type SQL } from "drizzle-orm";
+import { and, eq, gte, desc, inArray, like, sql, type SQL } from "drizzle-orm";
 import {
   CYCLE_BUCKETS,
   AGE_BUCKETS,
@@ -81,7 +82,7 @@ export async function GET(request: NextRequest) {
       issueConditions.push(eq(issueAnalytics.projectId, parseInt(project)));
     }
     if (author) {
-      issueConditions.push(eq(issueAnalytics.authorUsername, author));
+      issueConditions.push(like(issueAnalytics.assigneeUsernames, `%${author}%`));
     }
     // Note: status filtering happens in JS after normalization below
     // (GitLab stores "opened", we normalize to "open")
@@ -164,6 +165,33 @@ export async function GET(request: NextRequest) {
       linksByMaster.set(key, list);
     }
 
+    // Fetch task assignees for all issues
+    const taskRows = await db
+      .select({
+        gitlabProjectId: issueTasks.gitlabProjectId,
+        issueIid: issueTasks.issueIid,
+        assigneeUsername: issueTasks.assigneeUsername,
+        taskText: issueTasks.taskText,
+        isCompleted: issueTasks.isCompleted,
+      })
+      .from(issueTasks);
+    // Group tasks by issue key, collect unique assignee usernames per issue
+    const taskAssigneesByKey = new Map<string, string[]>();
+    const tasksByKey = new Map<string, Array<{ assigneeUsername: string | null; taskText: string; isCompleted: boolean }>>();
+    for (const t of taskRows) {
+      const key = `${t.gitlabProjectId}:${t.issueIid}`;
+      const existing = tasksByKey.get(key) ?? [];
+      existing.push({ assigneeUsername: t.assigneeUsername, taskText: t.taskText, isCompleted: !!t.isCompleted });
+      tasksByKey.set(key, existing);
+      if (t.assigneeUsername) {
+        const assignees = taskAssigneesByKey.get(key) ?? [];
+        if (!assignees.includes(t.assigneeUsername)) {
+          assignees.push(t.assigneeUsername);
+          taskAssigneesByKey.set(key, assignees);
+        }
+      }
+    }
+
     const issues: ReviewIssue[] = rows
       .map((r) => {
         // Normalize GitLab's "opened" to "open"
@@ -204,6 +232,8 @@ export async function GET(request: NextRequest) {
           type: board.type,
           linkedIssues:
             linksByMaster.get(`${r.gitlabProjectId}:${r.issueIid}`) ?? [],
+          taskAssignees:
+            taskAssigneesByKey.get(`${r.gitlabProjectId}:${r.issueIid}`) ?? [],
         };
       })
       .filter((i) => (status === "open" || status === "closed" ? i.state === status : true));
@@ -347,14 +377,14 @@ export async function GET(request: NextRequest) {
       };
     }).filter((b) => b.count > 0);
 
-    // ---- People ----
+    // ---- People (assignee-based attribution) ----
     const peopleMap = new Map<string, PersonStat>();
-    for (const i of issues) {
+    const creditPerson = (username: string, name: string, issue: (typeof issues)[number]) => {
       const p =
-        peopleMap.get(i.authorUsername) ||
+        peopleMap.get(username) ||
         {
-          username: i.authorUsername,
-          name: i.authorName,
+          username,
+          name,
           totalIssues: 0,
           issuesClosed: 0,
           issuesOpen: 0,
@@ -366,18 +396,33 @@ export async function GET(request: NextRequest) {
           wipCount: 0,
         };
       p.totalIssues++;
-      if (i.state === "closed") p.issuesClosed++;
+      if (issue.state === "closed") p.issuesClosed++;
       else {
         p.issuesOpen++;
-        if (i.boardStage === "In Progress") p.wipCount++;
-        p.oldestOpenAge = Math.max(p.oldestOpenAge, ageHoursOf(i.createdAt));
+        if (issue.boardStage === "In Progress") p.wipCount++;
+        p.oldestOpenAge = Math.max(p.oldestOpenAge, ageHoursOf(issue.createdAt));
       }
-      p.totalComments += i.commentCount || 0;
-      peopleMap.set(i.authorUsername, p);
+      p.totalComments += issue.commentCount || 0;
+      peopleMap.set(username, p);
+    };
+    for (const i of issues) {
+      const assignees = (i.assigneeUsernames || "")
+        .split(",")
+        .map((a) => a.trim())
+        .filter(Boolean);
+      if (assignees.length === 0) continue;
+      for (const a of assignees) {
+        creditPerson(a, a, i);
+      }
     }
     const people = Array.from(peopleMap.values())
       .map((p) => {
-        const userIssues = issues.filter((i) => i.authorUsername === p.username);
+        const userIssues = issues.filter((i) =>
+          (i.assigneeUsernames || "")
+            .split(",")
+            .map((a) => a.trim())
+            .includes(p.username)
+        );
         const uCycle = userIssues
           .filter((i) => i.state === "closed" && i.timeToCloseHours !== null)
           .map((i) => i.timeToCloseHours!);

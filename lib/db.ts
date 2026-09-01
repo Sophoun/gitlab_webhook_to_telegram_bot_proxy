@@ -112,6 +112,17 @@ function initSchema(db: Database.Database) {
       link_type TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS issue_tasks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id INTEGER NOT NULL,
+      gitlab_project_id INTEGER NOT NULL,
+      issue_iid INTEGER NOT NULL,
+      task_text TEXT NOT NULL,
+      assignee_username TEXT,
+      is_completed INTEGER NOT NULL DEFAULT 0,
+      synced_at INTEGER DEFAULT (unixepoch())
+    );
+
     CREATE TABLE IF NOT EXISTS gitlab_repos (
       id INTEGER PRIMARY KEY,
       config_project_id INTEGER NOT NULL,
@@ -136,6 +147,8 @@ function initSchema(db: Database.Database) {
       ON issue_progress_history(gitlab_project_id, issue_iid, stage, progress, updated_by, occurred_at);
     CREATE INDEX IF NOT EXISTS idx_issue_links_master ON issue_links(gitlab_project_id, issue_iid);
     CREATE INDEX IF NOT EXISTS idx_issue_links_target ON issue_links(linked_gitlab_project_id, linked_issue_iid);
+    CREATE INDEX IF NOT EXISTS idx_issue_tasks_assignee ON issue_tasks(assignee_username);
+    CREATE INDEX IF NOT EXISTS idx_issue_tasks_issue ON issue_tasks(gitlab_project_id, issue_iid);
     CREATE INDEX IF NOT EXISTS idx_gitlab_repos_config ON gitlab_repos(config_project_id);
   `);
 

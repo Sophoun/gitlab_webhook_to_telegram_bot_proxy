@@ -3,10 +3,11 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, ExternalLink, ListTodo, GitMerge, Code2, Gauge, CalendarDays, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, ExternalLink } from "lucide-react";
 import { WORKFLOW_STAGES, STAGE_BADGE_CLASS } from "./types";
+
+const STALE_DAYS = 14;
 
 interface OpenTask {
   gitlabProjectId: number;
@@ -15,15 +16,15 @@ interface OpenTask {
   issueUrl: string | null;
   projectName: string;
   boardStage: string;
-  isAuthor: boolean;
   isAssignee: boolean;
+  createdAt: string | null;
 }
 
-interface ItemRef {
-  itemIid: number;
-  itemTitle: string | null;
-  itemUrl: string | null;
-  projectName: string;
+interface AssignedTask {
+  gitlabProjectId: number;
+  issueIid: number;
+  taskText: string;
+  isCompleted: boolean;
 }
 
 interface PersonReportData {
@@ -36,17 +37,8 @@ interface PersonReportData {
     commits: number;
     totalEvents: number;
   };
-  closedIssues: ItemRef[];
-  createdIssues: ItemRef[];
-  commentedOn: ItemRef[];
   openTasks: OpenTask[];
-  authoredOpenIssues: OpenTask[];
-  dailyActivity: Array<{ date: string; events: number }>;
-}
-
-interface TrendData {
-  weeks: Array<{ weekStart: string; commits: number; mrsMerged: number }>;
-  people: Array<{ username: string; name: string; commits: number[]; mrsMerged: number[] }>;
+  assignedTasks: AssignedTask[];
 }
 
 /** Lookback window for the activity summary (days) */
@@ -59,15 +51,34 @@ function isoDaysAgo(days: number): Date {
   return d;
 }
 
+function getPerformanceSummary(
+  name: string,
+  openCount: number,
+  closedCount: number,
+  commits: number,
+  mrs: number,
+): string {
+  const parts: string[] = [];
+  parts.push(`${name} has ${openCount} open issue${openCount !== 1 ? "s" : ""} assigned.`);
+  if (closedCount > 0) parts.push(`Resolved ${closedCount} issues in the last 30 days.`);
+  if (commits > 0 || mrs > 0) {
+    const codeParts: string[] = [];
+    if (mrs > 0) codeParts.push(`${mrs} MR${mrs !== 1 ? "s" : ""} merged`);
+    if (commits > 0) codeParts.push(`${commits} commit${commits !== 1 ? "s" : ""}`);
+    parts.push(`Code output: ${codeParts.join(" and ")}.`);
+  }
+  if (closedCount === 0 && commits === 0 && mrs === 0) {
+    parts.push("No activity recorded in the last 30 days.");
+  }
+  return parts.join(" ");
+}
+
 /**
- * Person profile — everything about one person across ALL repos: open tasks,
- * 30-day activity summary, weekly shipping trend, and a daily activity
- * heatmap-style strip.
+ * Person profile — simplified for HR: name, summary, and open tasks by stage.
  */
 export function PersonProfile({ username }: { username: string }) {
   const router = useRouter();
   const [report, setReport] = useState<PersonReportData | null>(null);
-  const [trend, setTrend] = useState<TrendData | null>(null);
   const [loading, setLoading] = useState(true);
 
   const from = isoDaysAgo(PERIOD_DAYS);
@@ -76,23 +87,18 @@ export function PersonProfile({ username }: { username: string }) {
   const fetchAll = useCallback(async () => {
     try {
       const reportQs = `from=${from.toISOString()}&to=${to.toISOString()}`;
-      const [reportRes, trendRes] = await Promise.all([
-        fetch(`/api/tracker/person-report?user=${encodeURIComponent(username)}&${reportQs}`),
-        fetch(`/api/tracker/trends?weeks=12&user=${encodeURIComponent(username)}`),
-      ]);
+      const reportRes = await fetch(
+        `/api/tracker/person-report?user=${encodeURIComponent(username)}&${reportQs}`,
+      );
       const reportData = await reportRes.json();
-      const trendData = await trendRes.json();
-      // Only set report if the report fetch succeeded (trend failure is non-fatal)
       if (!reportRes.ok || reportData.error) {
         setReport(null);
       } else {
         setReport(reportData);
       }
-      setTrend(trendRes.ok && !trendData.error ? trendData : null);
     } catch (error) {
       console.error("Failed to fetch person profile:", error);
       setReport(null);
-      setTrend(null);
     } finally {
       setLoading(false);
     }
@@ -107,10 +113,6 @@ export function PersonProfile({ username }: { username: string }) {
     stage,
     items: (report?.openTasks || []).filter((t) => t.boardStage === stage),
   })).filter((g) => g.items.length > 0);
-
-  const myTrend = trend?.people?.[0];
-  const maxWeekly = myTrend ? Math.max(1, ...myTrend.commits, ...myTrend.mrsMerged) : 1;
-  const maxDaily = Math.max(1, ...(report?.dailyActivity || []).map((d) => d.events));
 
   if (loading) {
     return (
@@ -139,6 +141,14 @@ export function PersonProfile({ username }: { username: string }) {
     );
   }
 
+  const summary = getPerformanceSummary(
+    report.user.name,
+    report.openTasks.length,
+    report.summary.issuesClosed,
+    report.summary.commits,
+    report.summary.mrsMerged,
+  );
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
@@ -162,75 +172,133 @@ export function PersonProfile({ username }: { username: string }) {
         </div>
       </div>
 
-      {/* Stat cards — last 30 days + current workload */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="flex items-center gap-1.5">
-              <ListTodo className="h-3.5 w-3.5 text-blue-500" /> Open Tasks
-            </CardDescription>
-            <CardTitle className="text-3xl text-blue-600">{report.openTasks.length}</CardTitle>
-          </CardHeader>
-          <CardContent className="text-xs text-muted-foreground">
-            across {new Set(report.openTasks.map((t) => t.projectName)).size} repos
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="flex items-center gap-1.5">
-              <Code2 className="h-3.5 w-3.5 text-emerald-600" /> Commits
-            </CardDescription>
-            <CardTitle className="text-3xl text-emerald-700">{report.summary.commits}</CardTitle>
-          </CardHeader>
-          <CardContent className="text-xs text-muted-foreground">last {PERIOD_DAYS} days</CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="flex items-center gap-1.5">
-              <GitMerge className="h-3.5 w-3.5 text-teal-600" /> MRs Merged
-            </CardDescription>
-            <CardTitle className="text-3xl text-teal-700">{report.summary.mrsMerged}</CardTitle>
-          </CardHeader>
-          <CardContent className="text-xs text-muted-foreground">last {PERIOD_DAYS} days</CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription className="flex items-center gap-1.5">
-              <CheckCircle2 className="h-3.5 w-3.5 text-green-600" /> Issues Closed
-            </CardDescription>
-            <CardTitle className="text-3xl text-green-600">{report.summary.issuesClosed}</CardTitle>
-          </CardHeader>
-          <CardContent className="text-xs text-muted-foreground">last {PERIOD_DAYS} days</CardContent>
-        </Card>
-      </div>
+      {/* Summary */}
+      <p className="text-sm text-muted-foreground leading-relaxed">{summary}</p>
 
-      {/* Weekly shipping trend */}
-      {myTrend && (
+      {/* Stage summary strip */}
+      {report.openTasks.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {tasksByStage.map((g) => (
+            <span
+              key={g.stage}
+              className={`inline-flex items-center rounded border px-2 py-1 text-xs font-medium ${STAGE_BADGE_CLASS[g.stage] || "border-border text-muted-foreground"}`}
+            >
+              {g.items.length}× {g.stage}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Workload by project */}
+      {report.openTasks.length > 0 && (() => {
+        const byProject = new Map<string, number>();
+        for (const t of report.openTasks) {
+          byProject.set(t.projectName, (byProject.get(t.projectName) || 0) + 1);
+        }
+        const sorted = [...byProject.entries()].sort((a, b) => b[1] - a[1]);
+        return (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Workload by Project</CardTitle>
+              <CardDescription>Where their open issues are</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {sorted.map(([project, count]) => (
+                  <div key={project} className="flex items-center gap-3">
+                    <span className="text-sm truncate min-w-0 flex-1">{project}</span>
+                    <div className="flex-1 max-w-[200px] bg-muted rounded-full h-2 overflow-hidden">
+                      <div
+                        className="h-full bg-blue-500 rounded-full"
+                        style={{ width: `${(count / report.openTasks.length) * 100}%` }}
+                      />
+                    </div>
+                    <span className="text-sm font-medium w-8 text-right">{count}</span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
+
+      {/* Stale issues alert */}
+      {(() => {
+        const now = new Date();
+        const stale = report.openTasks.filter((t) => {
+          if (!t.createdAt) return false;
+          const created = new Date(t.createdAt);
+          const days = Math.floor((now.getTime() - created.getTime()) / (1000 * 60 * 60 * 24));
+          return days >= STALE_DAYS;
+        });
+        if (stale.length === 0) return null;
+        return (
+          <Card className="border-orange-200 bg-orange-50/50">
+            <CardHeader>
+              <CardTitle className="text-base text-orange-700">
+                ⚠ {stale.length} Stale Issue{stale.length !== 1 ? "s" : ""}
+              </CardTitle>
+              <CardDescription className="text-orange-600">
+                Open for more than {STALE_DAYS} days — may need attention
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-1">
+                {stale.map((t) => {
+                  const days = Math.floor(
+                    (now.getTime() - new Date(t.createdAt!).getTime()) / (1000 * 60 * 60 * 24),
+                  );
+                  return (
+                    <div key={`${t.gitlabProjectId}-${t.issueIid}`} className="flex items-center gap-2 text-sm">
+                      <span className="text-muted-foreground text-xs">#{t.issueIid}</span>
+                      <span className="truncate flex-1">{t.issueTitle}</span>
+                      <span className="text-orange-600 text-xs shrink-0">{days}d</span>
+                      <span className="text-[10px] text-muted-foreground shrink-0">{t.projectName}</span>
+                      {t.issueUrl && (
+                        <a
+                          href={t.issueUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-muted-foreground hover:text-foreground shrink-0"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
+
+      {/* Assigned checklist tasks */}
+      {report.assignedTasks && report.assignedTasks.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Gauge className="h-4 w-4 text-orange-500" /> Shipping Trend
+            <CardTitle className="text-base">
+              Assigned Tasks ({report.assignedTasks.filter((t) => !t.isCompleted).length} open / {report.assignedTasks.length} total)
             </CardTitle>
-            <CardDescription>Commits (green) and merged MRs (teal) · last 12 weeks</CardDescription>
+            <CardDescription>Checklist items assigned to this person in issue descriptions</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex items-end gap-1.5 h-28">
-              {myTrend.commits.map((c, i) => {
-                const m = myTrend.mrsMerged[i];
-                return (
-                  <div key={i} className="flex-1 flex flex-col justify-end min-h-[2px]" title={`${c} commits, ${m} MRs`}>
-                    {m > 0 && <div className="w-full bg-teal-600" style={{ height: `${(m / maxWeekly) * 100}%` }} />}
-                    {c > 0 && <div className="w-full bg-emerald-500" style={{ height: `${(c / maxWeekly) * 100}%` }} />}
-                    {c + m === 0 && <div className="w-full h-0.5 bg-muted" />}
-                  </div>
-                );
-              })}
-            </div>
-            <div className="flex gap-1.5 mt-1">
-              {(trend?.weeks || []).map((w) => (
-                <span key={w.weekStart} className="flex-1 text-[9px] text-muted-foreground text-center">
-                  {new Date(w.weekStart).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-                </span>
+            <div className="space-y-1">
+              {report.assignedTasks.map((task, i) => (
+                <div
+                  key={`${task.gitlabProjectId}-${task.issueIid}-${i}`}
+                  className="flex items-center gap-2 text-sm"
+                >
+                  <span className={`shrink-0 ${task.isCompleted ? "text-green-600" : "text-muted-foreground"}`}>
+                    {task.isCompleted ? "☑" : "☐"}
+                  </span>
+                  <span className={task.isCompleted ? "line-through text-muted-foreground" : ""}>
+                    {task.taskText}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground shrink-0">
+                    #{task.issueIid}
+                  </span>
+                </div>
               ))}
             </div>
           </CardContent>
@@ -241,7 +309,7 @@ export function PersonProfile({ username }: { username: string }) {
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Open Tasks Across All Projects</CardTitle>
-          <CardDescription>Authored or assigned · grouped by board stage</CardDescription>
+          <CardDescription>Grouped by board stage</CardDescription>
         </CardHeader>
         <CardContent>
           {tasksByStage.length === 0 ? (
@@ -286,139 +354,6 @@ export function PersonProfile({ username }: { username: string }) {
           )}
         </CardContent>
       </Card>
-
-      {/* Authored open issues (not assigned to this person) */}
-      {(report.authoredOpenIssues || []).length > 0 && (() => {
-        const authored = report.authoredOpenIssues;
-        const authGroups: Array<{ stage: string; items: typeof authored }> = [];
-        for (const stage of WORKFLOW_STAGES) {
-          const items = authored.filter((t) => t.boardStage === stage);
-          if (items.length > 0) authGroups.push({ stage, items });
-        }
-        const authMatched = new Set(authGroups.flatMap((g) => g.items.map((t) => `${t.gitlabProjectId}-${t.issueIid}`)));
-        const authUnmatched = authored.filter((t) => !authMatched.has(`${t.gitlabProjectId}-${t.issueIid}`));
-        if (authUnmatched.length > 0) authGroups.push({ stage: "Opened", items: authUnmatched });
-
-        return (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Authored Open Issues ({authored.length})</CardTitle>
-              <CardDescription>Created but not assigned to you · grouped by board stage</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                {authGroups.map((group) => (
-                  <div
-                    key={`auth-${group.stage}`}
-                    className={`rounded-lg border p-2.5 ${STAGE_BADGE_CLASS[group.stage] || "border-border"}`}
-                  >
-                    <p className="text-xs font-semibold mb-1.5">
-                      {group.stage} ({group.items.length})
-                    </p>
-                    <div className="space-y-1">
-                      {group.items.map((t) => (
-                        <div
-                          key={`auth-${t.gitlabProjectId}-${t.issueIid}`}
-                          className="flex items-center gap-1.5 text-sm min-w-0"
-                        >
-                          <span className="text-muted-foreground shrink-0 text-xs">#{t.issueIid}</span>
-                          <span className="truncate">{t.issueTitle}</span>
-                          <span className="text-[10px] text-muted-foreground shrink-0 truncate max-w-[100px]">
-                            {t.projectName}
-                          </span>
-                          {t.issueUrl && (
-                            <a
-                              href={t.issueUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-muted-foreground hover:text-foreground shrink-0"
-                            >
-                              <ExternalLink className="h-3 w-3" />
-                            </a>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        );
-      })()}
-
-      {/* Daily activity + period lists */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <CalendarDays className="h-4 w-4 text-muted-foreground" /> Daily Activity
-            </CardTitle>
-            <CardDescription>Events per day · last {PERIOD_DAYS} days</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-end gap-1 h-24">
-              {(report.dailyActivity || []).map((d) => (
-                <div
-                  key={d.date}
-                  className="flex-1 bg-blue-500/80 rounded-t min-h-[2px]"
-                  style={{ height: `${(d.events / maxDaily) * 100}%` }}
-                  title={`${d.date}: ${d.events} events`}
-                />
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Closed ({report.closedIssues.length})</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <RefList items={report.closedIssues} empty="Nothing closed" />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Created ({report.createdIssues.length})</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <RefList items={report.createdIssues} empty="Nothing created" />
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
-}
-
-function RefList({ items, empty }: { items: ItemRef[]; empty: string }) {
-  if (items.length === 0) return <p className="text-sm text-muted-foreground">{empty}</p>;
-  return (
-    <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
-      {items.map((item, i) => (
-        <div key={`${item.itemIid}-${i}`} className="flex items-center gap-2 text-sm min-w-0">
-          <Badge variant="outline" className="text-[10px] shrink-0">
-            #{item.itemIid}
-          </Badge>
-          <span className="truncate">{item.itemTitle || "Untitled"}</span>
-          {item.projectName && (
-            <span className="text-[10px] text-muted-foreground shrink-0 truncate max-w-[100px]">
-              {item.projectName}
-            </span>
-          )}
-          {item.itemUrl && (
-            <a
-              href={item.itemUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-muted-foreground hover:text-foreground shrink-0"
-            >
-              <ExternalLink className="h-3 w-3" />
-            </a>
-          )}
-        </div>
-      ))}
     </div>
   );
 }

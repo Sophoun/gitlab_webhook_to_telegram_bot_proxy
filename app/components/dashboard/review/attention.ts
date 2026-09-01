@@ -3,9 +3,9 @@ import type { ReviewIssue } from "./types";
 export const ATTENTION_THRESHOLDS = {
   stuckDevDays: 14,
   refinementDays: 14,
-  readyDays: 5,
-  reviewDays: 3,
-  qaDays: 5,
+  readyDays: 14,
+  reviewDays: 14,
+  qaDays: 14,
 } as const;
 
 export function ageDays(iso: string): number {
@@ -34,13 +34,13 @@ export function categorizeAttention(issues: ReviewIssue[]): AttentionCategory[] 
     {
       key: "blocked",
       title: "Blocked",
-      hint: "Tickets labeled 'blocked' — unblock these first",
+      hint: "Labeled 'blocked' — unblock these first",
       issues: open.filter(isBlocked),
     },
     {
       key: "stuck-refinement",
       title: "Stuck in Refinement",
-      hint: `In Refinement for ${T.refinementDays}+ days — scoping is stalled`,
+      hint: `In Refinement ${T.refinementDays}+ days — scoping stalled`,
       issues: open.filter(
         (i) => i.boardStage === "Refinement" && ageDays(i.createdAt) >= T.refinementDays
       ),
@@ -48,7 +48,7 @@ export function categorizeAttention(issues: ReviewIssue[]): AttentionCategory[] 
     {
       key: "not-picked-up",
       title: "Ready but Not Picked Up",
-      hint: `Ready for Dev for ${T.readyDays}+ days — squads should start these`,
+      hint: `Ready for Dev ${T.readyDays}+ days — nobody started`,
       issues: open.filter(
         (i) => i.boardStage === "Ready for Dev" && ageDays(i.createdAt) >= T.readyDays
       ),
@@ -56,7 +56,7 @@ export function categorizeAttention(issues: ReviewIssue[]): AttentionCategory[] 
     {
       key: "stuck-dev",
       title: "Stuck in Development",
-      hint: `In Progress for ${T.stuckDevDays}+ days since creation`,
+      hint: `In Progress ${T.stuckDevDays}+ days — check with the assignee`,
       issues: open.filter(
         (i) => i.boardStage === "In Progress" && ageDays(i.createdAt) >= T.stuckDevDays
       ),
@@ -64,7 +64,7 @@ export function categorizeAttention(issues: ReviewIssue[]): AttentionCategory[] 
     {
       key: "review-wait",
       title: "Waiting on Review",
-      hint: `In Peer Review for ${T.reviewDays}+ days`,
+      hint: `In Peer Review ${T.reviewDays}+ days — needs a reviewer`,
       issues: open.filter(
         (i) => i.boardStage === "Peer Review" && ageDays(i.createdAt) >= T.reviewDays
       ),
@@ -72,7 +72,7 @@ export function categorizeAttention(issues: ReviewIssue[]): AttentionCategory[] 
     {
       key: "qa-bottleneck",
       title: "QA Bottleneck",
-      hint: `In Testing/QA for ${T.qaDays}+ days`,
+      hint: `In Testing/QA ${T.qaDays}+ days — QA is backed up`,
       issues: open.filter(
         (i) => i.boardStage === "Testing/QA" && ageDays(i.createdAt) >= T.qaDays
       ),
