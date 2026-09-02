@@ -78,7 +78,19 @@ function initSchema(db: Database.Database) {
       unique_commenters TEXT,
       synced_at INTEGER DEFAULT (unixepoch())
     );
+    `);
 
+    // Safe column additions for issue_analytics
+    const iaInfo = db.prepare("PRAGMA table_info(issue_analytics)").all() as Array<{ name: string }>;
+    const iaCols = new Set(iaInfo.map((c) => c.name));
+    if (!iaCols.has("board_stage")) {
+      db.exec(`ALTER TABLE issue_analytics ADD COLUMN board_stage TEXT`);
+    }
+    if (!iaCols.has("stage_entered_at")) {
+      db.exec(`ALTER TABLE issue_analytics ADD COLUMN stage_entered_at INTEGER`);
+    }
+
+    db.exec(`
     CREATE TABLE IF NOT EXISTS issue_progress (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       project_id INTEGER NOT NULL,

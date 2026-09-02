@@ -43,6 +43,8 @@ export interface ReviewIssue {
   linkedIssues: LinkedIssueInfo[];
   // Task assignees from issue descriptions (checklist items with @username)
   taskAssignees?: string[];
+  // When the issue entered its current board stage
+  stageEnteredAt?: string | null;
 }
 
 // The team's Kanban workflow, in board order

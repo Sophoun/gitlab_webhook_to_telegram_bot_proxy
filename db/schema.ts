@@ -79,6 +79,10 @@ export const issueAnalytics = sqliteTable("issue_analytics", {
   commentCount: integer("comment_count").default(0),
   uniqueCommenters: text("unique_commenters"), // comma-separated usernames
   
+  // Kanban stage tracking
+  boardStage: text("board_stage"), // current stage computed from labels
+  stageEnteredAt: integer("stage_entered_at", { mode: "timestamp" }), // when issue entered current stage
+  
   syncedAt: integer("synced_at", { mode: "timestamp" }).$defaultFn(() => new Date()),
 });
 

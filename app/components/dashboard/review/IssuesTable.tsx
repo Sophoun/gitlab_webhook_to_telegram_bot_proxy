@@ -48,6 +48,11 @@ function ageInDays(createdAt: string): number {
   return Math.floor((Date.now() - new Date(createdAt).getTime()) / 86_400_000);
 }
 
+function stageDurationDays(issue: ReviewIssue): number {
+  const ref = issue.stageEnteredAt || issue.createdAt;
+  return Math.floor((Date.now() - new Date(ref).getTime()) / 86_400_000);
+}
+
 function filteredByStatusOnly(issues: ReviewIssue[], status: string): ReviewIssue[] {
   return status === "all" ? issues : issues.filter((i) => i.state === status);
 }
@@ -321,7 +326,7 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
               <TableHead>
                 <SortHead field="createdAt" onSort={handleSort}>Created</SortHead>
               </TableHead>
-              <TableHead className="text-right">Age</TableHead>
+              <TableHead className="text-right">In Stage</TableHead>
               <TableHead>
                 <SortHead field="timeToCloseHours" onSort={handleSort}>Cycle Time</SortHead>
               </TableHead>
@@ -462,14 +467,14 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
                     {issue.state === "open" ? (
                       <span
                         className={
-                          ageInDays(issue.createdAt) >= 14
+                          stageDurationDays(issue) >= 14
                             ? "text-destructive font-medium"
-                            : ageInDays(issue.createdAt) >= 7
+                            : stageDurationDays(issue) >= 7
                               ? "text-orange-600 font-medium"
                               : ""
                         }
                       >
-                        {ageInDays(issue.createdAt)}d
+                        {stageDurationDays(issue)}d
                       </span>
                     ) : (
                       <span className="text-muted-foreground">—</span>

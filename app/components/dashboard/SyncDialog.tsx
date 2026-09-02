@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -49,13 +49,14 @@ export function SyncDialog({
     }
   }, [open]);
 
-  // Close dialog when syncing finishes
+  // Close dialog when syncing finishes (transition true → false)
+  const prevSyncing = useRef(syncing);
   useEffect(() => {
-    if (!syncing && open) {
-      // syncing just went from true → false — close the dialog
+    if (prevSyncing.current && !syncing) {
       onOpenChange(false);
     }
-  }, [syncing]);
+    prevSyncing.current = syncing;
+  }, [syncing, onOpenChange]);
 
   async function fetchGitLabProjects() {
     try {

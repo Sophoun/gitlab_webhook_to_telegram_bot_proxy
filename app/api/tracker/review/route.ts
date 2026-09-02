@@ -47,29 +47,26 @@ export async function GET(request: NextRequest) {
     const now = Date.now();
 
     // ---- Project name lookup + main-project scoping ----
-    // The review is based on the MAIN project only (each config's mgmt_id),
-    // never summed across child GitLab repos.
     const projectRows = await db
       .select({ id: projects.id, name: projects.name, mgmtId: projects.mgmtId })
       .from(projects);
     const projectNameById = new Map(projectRows.map((p) => [p.id, p.name]));
-    const mainProjectIds = projectRows
-      .map((p) => parseInt(p.mgmtId))
-      .filter((n) => !isNaN(n));
 
-    const mainProjectFilter: SQL =
-      mainProjectIds.length > 0
-        ? inArray(issueAnalytics.gitlabProjectId, mainProjectIds)
-        : sql`0`; // no configured main projects -> no data
+    // Collect all GitLab project IDs across all configs (main + children)
+    // so the default view shows issues from all repos.
+    const allGitlabProjectIds = (await db.select({ id: gitlabRepos.id }).from(gitlabRepos))
+      .map((r) => r.id);
 
     // ---- Repo scoping ----
-    // Default: main projects only. `repo=<gitlab_project_id>` re-scopes the
+    // Default: ALL repos. `repo=<gitlab_project_id>` re-scopes the
     // whole review to a single repo (e.g. a child project with its own board).
     const repoParam = searchParams.get("repo");
     const scopeFilter: SQL =
       repoParam && !isNaN(parseInt(repoParam))
         ? eq(issueAnalytics.gitlabProjectId, parseInt(repoParam))
-        : mainProjectFilter;
+        : allGitlabProjectIds.length > 0
+          ? inArray(issueAnalytics.gitlabProjectId, allGitlabProjectIds)
+          : sql`1=1`; // no repos cached yet — show everything
 
     // ---- Build shared filters ----
     const cutoff =
@@ -234,6 +231,9 @@ export async function GET(request: NextRequest) {
             linksByMaster.get(`${r.gitlabProjectId}:${r.issueIid}`) ?? [],
           taskAssignees:
             taskAssigneesByKey.get(`${r.gitlabProjectId}:${r.issueIid}`) ?? [],
+          stageEnteredAt: r.stageEnteredAt
+            ? new Date(r.stageEnteredAt).toISOString()
+            : null,
         };
       })
       .filter((i) => (status === "open" || status === "closed" ? i.state === status : true));
@@ -445,9 +445,9 @@ export async function GET(request: NextRequest) {
     const activityScopeFilter: SQL =
       repoParam && !isNaN(parseInt(repoParam))
         ? eq(userActivity.gitlabProjectId, parseInt(repoParam))
-        : mainProjectIds.length > 0
-          ? inArray(userActivity.gitlabProjectId, mainProjectIds)
-          : sql`0`;
+        : allGitlabProjectIds.length > 0
+          ? inArray(userActivity.gitlabProjectId, allGitlabProjectIds)
+          : sql`1=1`;
 
     const activityConditions: SQL[] = [activityScopeFilter];
     if (project && !isNaN(parseInt(project))) {

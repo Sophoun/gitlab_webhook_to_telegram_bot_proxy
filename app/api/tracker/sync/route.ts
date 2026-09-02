@@ -14,6 +14,7 @@ import { createGitLabClient } from "@/lib/gitlab-api";
 import { parseProgressCommands, parseProgressUpdate } from "@/lib/progress-parser";
 import { parseCrossProjectRefs } from "@/lib/issue-links";
 import { parseIssueTasks } from "@/lib/task-parser";
+import { parseBoardLabels } from "@/app/components/dashboard/review/types";
 import { and, eq, ne } from "drizzle-orm";
 
 /**
@@ -67,6 +68,10 @@ export async function POST(request: NextRequest) {
 
     const db = getDb();
 
+    // Canonical identity maps for commit attribution (see buildRosterMaps).
+    // Built BEFORE any rows are deleted so prior sync data is still visible.
+    const roster = await buildRosterMaps(db);
+
     // If clean=true, wipe all analytics tables before re-syncing
     if (clean) {
       await db.delete(userActivity);
@@ -76,10 +81,6 @@ export async function POST(request: NextRequest) {
       await db.delete(issueProgressHistory);
       // NOTE: issue_progress is intentionally NOT wiped — it persists across runs
     }
-
-    // Canonical identity maps for commit attribution (see buildRosterMaps).
-    // Built BEFORE any rows are deleted so prior sync data is still visible.
-    const roster = await buildRosterMaps(db);
 
     // Get all project configs
     const allConfigs = await db.select().from(projects);
@@ -161,26 +162,6 @@ export async function POST(request: NextRequest) {
           // Link sync only applies to MAIN projects (master tickets live there)
           const isMainProject = parseInt(config.mgmtId) === gitlabProject.id;
 
-          // Delete existing records for this GitLab project
-          await db.delete(userActivity).where(
-            eq(userActivity.gitlabProjectId, gitlabProject.id)
-          );
-          await db.delete(issueAnalytics).where(
-            eq(issueAnalytics.gitlabProjectId, gitlabProject.id)
-          );
-          if (isMainProject) {
-            // Keep child-contributed subtask_ref rows; they are owned by the
-            // child repo's own sync (deleted/rebuilt there).
-            await db
-              .delete(issueLinks)
-              .where(
-                and(
-                  eq(issueLinks.gitlabProjectId, gitlabProject.id),
-                  ne(issueLinks.linkType, "subtask_ref")
-                )
-              );
-          }
-
           // Collect all activities for batch insert
           const activitiesToInsert: Array<typeof userActivity.$inferInsert> = [];
           const issueAnalyticsToInsert: Array<typeof issueAnalytics.$inferInsert> = [];
@@ -201,6 +182,9 @@ export async function POST(request: NextRequest) {
 
           // Process issues and fetch their notes for analytics
           for (const issue of issues) {
+            // Track the most recent event for stageEnteredAt
+            let lastEventAt = new Date(issue.created_at);
+
             // Issue created activity
             activitiesToInsert.push({
               projectId: config.id,
@@ -221,6 +205,8 @@ export async function POST(request: NextRequest) {
             // (closed_by), falling back to the author only when GitLab doesn't
             // tell us who closed it.
             if (issue.closed_at) {
+              const closedDate = new Date(issue.closed_at);
+              if (closedDate > lastEventAt) lastEventAt = closedDate;
               const closer = issue.closed_by?.[0] ?? issue.author;
               activitiesToInsert.push({
                 projectId: config.id,
@@ -255,6 +241,8 @@ export async function POST(request: NextRequest) {
               for (const note of nonSystemNotes) {
                 const noteUsername = note.author.username.toLowerCase();
                 commenters.add(noteUsername);
+                const noteDate = new Date(note.created_at);
+                if (noteDate > lastEventAt) lastEventAt = noteDate;
 
                 // Check if this is the first response by someone other than author
                 if (!firstResponseAt && note.author.username !== issue.author.username) {
@@ -331,6 +319,9 @@ export async function POST(request: NextRequest) {
                 : null;
 
               // Insert issue analytics
+              const labels = issue.labels.join(",");
+              const state = issue.state === "closed" ? "closed" : "open";
+              const board = parseBoardLabels(labels, state);
               issueAnalyticsToInsert.push({
                 projectId: config.id,
                 gitlabProjectId: gitlabProject.id,
@@ -340,7 +331,7 @@ export async function POST(request: NextRequest) {
                 authorUsername: issue.author.username.toLowerCase(),
                 authorName: issue.author.name,
                 state: issue.state,
-                labels: issue.labels.join(","),
+                labels,
                 assigneeUsernames:
                   issue.assignees
                     ?.map((a) => a.username.toLowerCase())
@@ -352,6 +343,8 @@ export async function POST(request: NextRequest) {
                 timeToFirstResponseHours: timeToFirstResponseHours,
                 commentCount: nonSystemNotes.length,
                 uniqueCommenters: Array.from(commenters).join(","),
+                boardStage: board.boardStage,
+                stageEnteredAt: lastEventAt,
               });
 
               // Upsert progress values parsed from comment commands.
@@ -394,7 +387,7 @@ export async function POST(request: NextRequest) {
 
             // Linked issues (main projects only): formal "Linked issues"
             // relations + cross-project `path#iid` references in the description
-            if (isMainProject) {
+              // Fetch linked issues and cross-project refs for ALL projects
               const seenTargets = new Set<string>();
               const addLink = (
                 targetProjectId: number,
@@ -433,7 +426,6 @@ export async function POST(request: NextRequest) {
                   addLink(targetId, ref.iid, "description_ref");
                 }
               }
-            }
 
             // Parse tasks from issue description (all projects)
             const parsedTasks = parseIssueTasks(issue.description);
@@ -611,6 +603,25 @@ export async function POST(request: NextRequest) {
               labels: null,
               state: null,
             });
+          }
+
+          // Delete existing records for this project BEFORE inserting new data
+          // (only after fetch succeeds, so old data survives if fetch fails)
+          await db.delete(userActivity).where(
+            eq(userActivity.gitlabProjectId, gitlabProject.id)
+          );
+          await db.delete(issueAnalytics).where(
+            eq(issueAnalytics.gitlabProjectId, gitlabProject.id)
+          );
+          if (isMainProject) {
+            await db
+              .delete(issueLinks)
+              .where(
+                and(
+                  eq(issueLinks.gitlabProjectId, gitlabProject.id),
+                  ne(issueLinks.linkType, "subtask_ref")
+                )
+              );
           }
 
           // Batch insert all activities

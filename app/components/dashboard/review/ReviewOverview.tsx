@@ -388,9 +388,19 @@ export function ReviewOverview() {
         onOpenChange={setSyncDialogOpen}
         onSync={async (gitlabProjectIds, clean) => {
           setSyncing(true);
+
+          // Periodic refresh every 15s so the dashboard updates while sync is running
+          const interval = setInterval(() => {
+            fetchIssues();
+            fetchTopPerformers();
+          }, 15_000);
+
+          // Stop polling after 30 minutes (full sync of 136+ repos)
+          const timeout = setTimeout(() => clearInterval(interval), 30 * 60 * 1000);
+
+          // Fire-and-forget: the sync processes 136+ repos and takes many minutes.
+          // The server-side handler continues running regardless of client connection.
           try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10 * 60 * 1000); // 10 min timeout
             const res = await fetch("/api/tracker/sync", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -398,22 +408,19 @@ export function ReviewOverview() {
                 gitlab_project_ids: gitlabProjectIds,
                 clean: clean ?? false,
               }),
-              signal: controller.signal,
             });
-            clearTimeout(timeoutId);
             if (!res.ok) {
-              const data = await res.json();
+              const data = await res.json().catch(() => ({}));
               console.error("Sync failed:", data.error || res.statusText);
             }
-            await fetchIssues();
-            await fetchTopPerformers();
-          } catch (error) {
-            if (error instanceof DOMException && error.name === "AbortError") {
-              console.error("Sync timed out after 10 minutes");
-            } else {
-              console.error("Sync failed:", error);
-            }
+          } catch {
+            // "Failed to fetch" = sync already running or server busy
+            console.warn("Sync request blocked — a sync may already be in progress");
           } finally {
+            clearInterval(interval);
+            clearTimeout(timeout);
+            fetchIssues();
+            fetchTopPerformers();
             setSyncing(false);
           }
         }}
