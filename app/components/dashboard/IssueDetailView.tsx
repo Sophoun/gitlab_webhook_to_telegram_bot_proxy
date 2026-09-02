@@ -433,6 +433,11 @@ export function IssueDetailView({
                       {child.title || `Issue #${child.issueIid}`}
                     </span>
                   )}
+                  {child.assigneeUsernames && (
+                    <span className="text-xs text-muted-foreground shrink-0">
+                      @{child.assigneeUsernames.split(",")[0].trim()}
+                    </span>
+                  )}
                   <div className="flex items-center gap-3 shrink-0">
                     {child.devProgress !== null && (
                       <div className="flex items-center gap-1.5">

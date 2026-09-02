@@ -8,6 +8,7 @@ export interface LinkedIssueInfo {
   issueUrl: string | null;
   devProgress: number | null;
   qaProgress: number | null;
+  assigneeUsernames: string | null;
 }
 
 export interface ReviewIssue {

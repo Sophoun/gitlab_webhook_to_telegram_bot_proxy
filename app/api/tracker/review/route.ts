@@ -114,7 +114,7 @@ export async function GET(request: NextRequest) {
     const childProjectIds = [...new Set(linkRows.map((l) => l.linkedGitlabProjectId))];
     const childAnalyticsByKey = new Map<
       string,
-      { issueTitle: string | null; state: string | null; issueUrl: string | null }
+      { issueTitle: string | null; state: string | null; issueUrl: string | null; assigneeUsernames: string | null }
     >();
     for (const pid of childProjectIds) {
       const iids = [
@@ -129,6 +129,7 @@ export async function GET(request: NextRequest) {
           issueTitle: issueAnalytics.issueTitle,
           state: issueAnalytics.state,
           issueUrl: issueAnalytics.issueUrl,
+          assigneeUsernames: issueAnalytics.assigneeUsernames,
         })
         .from(issueAnalytics)
         .where(and(eq(issueAnalytics.gitlabProjectId, pid), inArray(issueAnalytics.issueIid, iids)));
@@ -137,6 +138,7 @@ export async function GET(request: NextRequest) {
           issueTitle: c.issueTitle,
           state: c.state,
           issueUrl: c.issueUrl,
+          assigneeUsernames: c.assigneeUsernames,
         });
       }
     }
@@ -158,6 +160,7 @@ export async function GET(request: NextRequest) {
         issueUrl: child?.issueUrl ?? null,
         devProgress: prog?.dev ?? null,
         qaProgress: prog?.qa ?? null,
+        assigneeUsernames: child?.assigneeUsernames ?? null,
       });
       linksByMaster.set(key, list);
     }
