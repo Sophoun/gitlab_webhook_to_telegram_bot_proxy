@@ -13,7 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ExternalLink, ArrowUpDown, ChevronLeft, ChevronRight } from "lucide-react";
-import { WORKFLOW_STAGES, getStageProgress, type ReviewIssue } from "./types";
+import { WORKFLOW_STAGES, TEAM_LABELS, getStageProgress, type ReviewIssue } from "./types";
 import { Progress } from "@/components/ui/progress";
 
 function SortHead({
@@ -74,7 +74,11 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
       if (statusFilter !== "all" && i.state !== statusFilter) return false;
       if (stageFilter !== "All" && i.boardStage !== stageFilter) return false;
       if (priorityFilter !== "All" && (i.priority || "") !== priorityFilter) return false;
-      if (teamFilter !== "All" && (i.team || "") !== teamFilter) return false;
+      if (teamFilter !== "All") {
+        // Match if the label appears anywhere on the issue (case-insensitive)
+        const labels = (i.labels || "").split(",").map((l) => l.trim().toLowerCase());
+        if (!labels.includes(teamFilter.toLowerCase())) return false;
+      }
       if (assigneeFilter !== "All") {
         const people = (i.assigneeUsernames || "").split(",").map((a) => a.trim());
         if (!people.includes(assigneeFilter)) return false;
@@ -111,18 +115,25 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
 
   const teamOptions = useMemo(() => {
     const set = new Set<string>();
-    for (const i of issues) if (i.team) set.add(i.team);
+    for (const i of issues) {
+      for (const l of (i.labels || "").split(",")) {
+        const t = l.trim();
+        if (t && TEAM_LABELS.some((x) => x.toLowerCase() === t.toLowerCase())) {
+          set.add(t);
+        }
+      }
+    }
     return Array.from(set).sort();
   }, [issues]);
 
-  // Stage chips reflect counts within the current status filter
+  // Stage chips reflect counts within the current status filter (excluding Completed)
   const stageChips = useMemo(() => {
     const counts = new Map<string, number>();
     for (const i of filteredByStatusOnly(issues, statusFilter)) {
       counts.set(i.boardStage, (counts.get(i.boardStage) || 0) + 1);
     }
     const stages = [
-      ...WORKFLOW_STAGES.filter((s) => (counts.get(s) || 0) > 0).map((s) => ({
+      ...WORKFLOW_STAGES.filter((s) => s !== "Completed" && (counts.get(s) || 0) > 0).map((s) => ({
         stage: s as string,
         count: counts.get(s)!,
       })),
@@ -194,39 +205,6 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
   };
   return (
     <div className="space-y-4">
-      {/* Stage filter chips */}
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          onClick={() => {
-            setStageFilter("All");
-            setPage(1);
-          }}
-          className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-            stageFilter === "All"
-              ? "bg-primary text-primary-foreground border-primary"
-              : "hover:bg-muted"
-          }`}
-        >
-          All ({filteredByStatusOnly(issues, statusFilter).length})
-        </button>
-        {stageChips.map((chip) => (
-          <button
-            key={chip.stage}
-            onClick={() => {
-              setStageFilter(chip.stage);
-              setPage(1);
-            }}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-              stageFilter === chip.stage
-                ? "bg-primary text-primary-foreground border-primary"
-                : "hover:bg-muted"
-            }`}
-          >
-            {chip.stage} ({chip.count})
-          </button>
-        ))}
-      </div>
-
       <div className="flex flex-wrap items-center gap-3">
         <Input
           placeholder="Search title, author, or #iid..."
@@ -237,6 +215,22 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
           }}
           className="max-w-xs"
         />
+        <select
+          value={stageFilter}
+          onChange={(e) => {
+            setStageFilter(e.target.value);
+            setPage(1);
+          }}
+          className="h-9 rounded-md border bg-background px-3 text-sm"
+          aria-label="Filter by board stage"
+        >
+          <option value="All">Stage: All</option>
+          {stageChips.map((chip) => (
+            <option key={chip.stage} value={chip.stage}>
+              {chip.stage} ({chip.count})
+            </option>
+          ))}
+        </select>
         <select
           value={assigneeFilter}
           onChange={(e) => {

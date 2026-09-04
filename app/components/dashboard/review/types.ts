@@ -95,7 +95,7 @@ export const STAGE_BADGE_CLASS: Record<string, string> = {
 /** Fallback stages for issues without workflow labels */
 export const FALLBACK_STAGES = ["Opened", "Closed"];
 
-const TEAM_LABELS = ["Business", "Android", "iOS", "Backend", "DevOps"];
+export const TEAM_LABELS = ["Business", "Android", "iOS", "Backend", "DevOps", "Frontend"];
 const TYPE_LABELS = ["Feature", "Bug", "Tech Debt", "Research", "Enhancement"];
 
 /**
