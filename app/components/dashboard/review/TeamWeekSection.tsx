@@ -248,6 +248,7 @@ export function TeamWeekSection({
   const [sortAsc, setSortAsc] = useState(false);
   const [search, setSearch] = useState("");
   const [showLegend, setShowLegend] = useState(false);
+  const [selectedStage, setSelectedStage] = useState<string | null>(null);
 
   const sorted = useMemo(() => {
     return [...people].sort((a, b) => {
@@ -280,14 +281,20 @@ export function TeamWeekSection({
   }, [people, sortBy, sortAsc]);
 
   const filtered = useMemo(() => {
-    if (!search) return sorted;
-    const q = search.toLowerCase();
-    return sorted.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.username.toLowerCase().includes(q)
-    );
-  }, [sorted, search]);
+    let result = sorted;
+    if (selectedStage) {
+      result = result.filter((p) => (p.openTasksByStage[selectedStage] ?? 0) > 0);
+    }
+    if (search) {
+      const q = search.toLowerCase();
+      result = result.filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          p.username.toLowerCase().includes(q)
+      );
+    }
+    return result;
+  }, [sorted, search, selectedStage]);
 
   // Leaderboard rank by performance score (descending), independent of current sort
   const rankMap = useMemo(() => {
@@ -335,6 +342,21 @@ export function TeamWeekSection({
       setDetailLoading(false);
     }
   };
+
+  // Compute stage counts from all people (unfiltered) so pills show stable counts
+  const stageCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    const filterStages = WORKFLOW_STAGES.filter((s) => s !== "Completed");
+    const allStages = [...filterStages, ...FALLBACK_STAGES];
+    for (const stage of allStages) {
+      let total = 0;
+      for (const p of people) {
+        total += p.openTasksByStage[stage] ?? 0;
+      }
+      if (total > 0) counts[stage] = total;
+    }
+    return counts;
+  }, [people]);
 
   const getStageChips = (p: PersonWeek) => {
     const workflow = WORKFLOW_STAGES.filter((stage) => p.openTasksByStage[stage]).map((stage) => ({
@@ -410,12 +432,30 @@ export function TeamWeekSection({
           </div>
         ) : (
           <>
-            <div className="pb-3">
+            {/* Stage filter + search on same row */}
+            <div className="flex items-center gap-3 pb-3">
+              <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">
+                Tasks in stage:
+              </label>
+              <select
+                value={selectedStage ?? ""}
+                onChange={(e) => setSelectedStage(e.target.value || null)}
+                className="h-9 rounded-md border bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option value="">All stages</option>
+                {[...WORKFLOW_STAGES.filter((s) => s !== "Completed"), ...FALLBACK_STAGES]
+                  .filter((stage) => stageCounts[stage])
+                  .map((stage) => (
+                    <option key={stage} value={stage}>
+                      {stage} ({stageCounts[stage]})
+                    </option>
+                  ))}
+              </select>
               <Input
                 placeholder="Search by name or username…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="max-w-xs"
+                className="max-w-xs ml-auto"
               />
             </div>
             <div className="border rounded-lg overflow-x-auto">

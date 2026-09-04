@@ -182,44 +182,67 @@ export function TeamPage() {
     setExporting(true);
     try {
       const XLSX = await import("xlsx");
-      const teamSheet = XLSX.utils.json_to_sheet(
-        people.map((p) => {
-          const coordination = p.issuesCreated;
-          const delivery = p.issuesClosed;
-          const code = p.commits + p.mrsMerged + p.mrsCreated;
-          const total = coordination + delivery + code;
-          let focus = "No activity";
-          if (total > 0) {
-            const share = (n: number) => n / total;
-            if (share(code) >= 0.6) focus = "Code";
-            else if (share(coordination) >= 0.6) focus = "Coordination";
-            else if (share(delivery) >= 0.6) focus = "Delivery";
-            else focus = "Mixed";
-          }
-          return {
-            Name: p.name,
-            Username: p.username,
-            Status: p.totalEvents > 0 ? "Active" : "No activity",
-            Focus: focus,
-            "Open Tasks": p.openTaskCount ?? 0,
-            "MRs Merged": p.mrsMerged,
-            Commits: p.commits,
-            Total: p.totalEvents,
-            "Progress Delivered (%)": p.progressDelivered ?? 0,
-            WIP: wipMap[p.username] || 0,
-            "Last Active": p.lastActivityAt
-              ? new Date(p.lastActivityAt).toLocaleString()
-              : "—",
-          };
-        })
-      );
-      teamSheet["!cols"] = [
-        { wch: 22 }, { wch: 18 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 12 },
-        { wch: 10 }, { wch: 20 }, { wch: 13 }, { wch: 8 },
+
+      // Fetch assigned issues for each person (in parallel, batched)
+      const issueRows: Array<{
+        Person: string;
+        "Issue #": number;
+        Title: string | null;
+        Project: string;
+        Stage: string;
+        URL: string;
+      }> = [];
+
+      const batchSize = 10;
+      for (let i = 0; i < people.length; i += batchSize) {
+        const batch = people.slice(i, i + batchSize);
+        const results = await Promise.all(
+          batch.map(async (p) => {
+            try {
+              const repoQs = repoParam ? `&repo=${repoParam}` : "";
+              const res = await fetch(
+                `/api/tracker/person-report?user=${encodeURIComponent(p.username)}&from=${fromIso}&to=${toIso}${repoQs}`
+              );
+              if (!res.ok) return [];
+              const data = await res.json();
+              if (data.error) return [];
+              const tasks: Array<{
+                gitlabProjectId: number;
+                issueIid: number;
+                issueTitle: string | null;
+                issueUrl: string | null;
+                projectName: string;
+                boardStage: string;
+              }> = data.openTasks || [];
+              return tasks.map((t) => ({
+                Person: p.name,
+                "Issue #": t.issueIid,
+                Title: t.issueTitle,
+                Project: t.projectName,
+                Stage: t.boardStage,
+                URL: t.issueUrl || "",
+              }));
+            } catch {
+              return [];
+            }
+          })
+        );
+        for (const r of results) issueRows.push(...r);
+      }
+
+      const issueSheet = XLSX.utils.json_to_sheet(issueRows);
+      issueSheet["!cols"] = [
+        { wch: 20 }, { wch: 10 }, { wch: 40 }, { wch: 25 }, { wch: 16 }, { wch: 60 },
       ];
+      // Enable auto-filter on the header row
+      if (issueRows.length > 0) {
+        issueSheet["!autofilter"] = {
+          ref: `A1:F${issueRows.length + 1}`,
+        };
+      }
 
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, teamSheet, "Team Activity");
+      XLSX.utils.book_append_sheet(wb, issueSheet, "Assigned Issues");
       XLSX.writeFile(
         wb,
         `team-activity_${periodType}_${range.from.toISOString().slice(0, 10)}.xlsx`
