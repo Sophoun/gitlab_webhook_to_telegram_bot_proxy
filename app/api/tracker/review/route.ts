@@ -318,14 +318,10 @@ export async function GET(request: NextRequest) {
       stageCounts.set(i.boardStage, (stageCounts.get(i.boardStage) || 0) + 1);
     }
     const boardDistribution = [
-      ...WORKFLOW_STAGES.map((stage) => ({
+      ...WORKFLOW_STAGES.filter((stage) => stage !== "Completed").map((stage) => ({
         stage,
         count: stageCounts.get(stage) || 0,
       })),
-      // Fallback stages at the bottom
-      ...(["Opened", "Closed"] as const)
-        .filter((s) => (stageCounts.get(s) || 0) > 0)
-        .map((s) => ({ stage: s, count: stageCounts.get(s)! })),
     ];
 
     // ---- Priority Breakdown (open issues) ----

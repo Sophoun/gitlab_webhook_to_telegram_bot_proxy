@@ -23,7 +23,6 @@ const STAGE_COLORS: Record<string, string> = {
   "In Progress": "border-blue-500/50 bg-blue-500/10",
   "Peer Review": "border-yellow-500/50 bg-yellow-500/10",
   "Testing/QA": "border-orange-500/50 bg-orange-500/10",
-  Completed: "border-lime-500/50 bg-lime-500/10",
   Done: "border-green-600/50 bg-green-600/10",
 };
 
