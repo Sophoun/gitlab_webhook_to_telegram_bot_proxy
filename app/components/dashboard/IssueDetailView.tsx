@@ -1,9 +1,9 @@
 "use client";
 
+import { useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import { WORKFLOW_STAGES, getStageProgress, type ReviewIssue } from "./review/types";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -18,8 +18,6 @@ import {
   Tag,
   FolderGit2,
   TrendingUp,
-  TrendingDown,
-  Minus,
   Hammer,
   FlaskConical,
   Link2,
@@ -28,8 +26,6 @@ import {
 interface IssueDetailViewProps {
   issue: ReviewIssue;
   onBack: () => void;
-  teamAvgCycleTime?: number | null;
-  teamAvgFirstResponse?: number | null;
 }
 
 const STAGE_COLORS: Record<string, string> = {
@@ -46,8 +42,6 @@ const STAGE_COLORS: Record<string, string> = {
 export function IssueDetailView({
   issue,
   onBack,
-  teamAvgCycleTime,
-  teamAvgFirstResponse,
 }: IssueDetailViewProps) {
   const formatHours = (hours: number | null): string => {
     if (hours === null) return "N/A";
@@ -68,28 +62,29 @@ export function IssueDetailView({
     ? Math.floor((Date.now() - new Date(issue.stageEnteredAt).getTime()) / 3_600_000)
     : ageHours;
 
-  const cycleComparison =
-    issue.timeToCloseHours !== null && teamAvgCycleTime
-      ? issue.timeToCloseHours / teamAvgCycleTime
-      : null;
-
-  const responseComparison =
-    issue.timeToFirstResponseHours !== null && teamAvgFirstResponse
-      ? issue.timeToFirstResponseHours / teamAvgFirstResponse
-      : null;
-
-  const comparisonLabel = (ratio: number): string =>
-    ratio <= 0.75
-      ? "much faster than team average"
-      : ratio <= 1.25
-        ? "in line with team average"
-        : ratio <= 2
-          ? "slower than team average"
-          : "much slower than team average";
-
   const commenterCount = issue.uniqueCommenters
     ? issue.uniqueCommenters.split(",").filter((c) => c.trim()).length
     : 0;
+
+  // Collect all people involved: author, assignees, commenters, task assignees, linked issue assignees
+  const linkedAssignees = useMemo(() => {
+    const set = new Set<string>();
+    for (const child of issue.linkedIssues) {
+      if (child.assigneeUsernames) {
+        for (const a of child.assigneeUsernames.split(",")) {
+          const t = a.trim();
+          if (t) set.add(t);
+        }
+      }
+    }
+    return Array.from(set);
+  }, [issue.linkedIssues]);
+
+  // People who performed any tracked action (create, close, comment, commit)
+  const activityActors = useMemo(() => {
+    if (!issue.activityActors) return [];
+    return issue.activityActors.split(",").map((a) => a.trim()).filter(Boolean);
+  }, [issue.activityActors]);
 
   // Rollup across linked child issues: closed ratio + average known progress
   const linkedRollupLabel = (() => {
@@ -570,78 +565,6 @@ export function IssueDetailView({
             </div>
           </CardContent>
         </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <TrendingUp className="h-4 w-4" />
-              vs Team Average
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            {/* Cycle time comparison */}
-            <div>
-              <p className="text-sm font-medium mb-1">Resolution Speed</p>
-              {cycleComparison !== null ? (
-                <div className="flex items-center gap-2 text-sm">
-                  {cycleComparison <= 1.25 ? (
-                    <TrendingUp className="h-4 w-4 text-green-600" />
-                  ) : cycleComparison <= 2 ? (
-                    <Minus className="h-4 w-4 text-orange-500" />
-                  ) : (
-                    <TrendingDown className="h-4 w-4 text-red-500" />
-                  )}
-                  <span>
-                    <strong>{cycleComparison.toFixed(1)}×</strong>{" "}
-                    {comparisonLabel(cycleComparison)}
-                  </span>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Not closed yet — no comparison available
-                </p>
-              )}
-            </div>
-            <Separator />
-            {/* Response comparison */}
-            <div>
-              <p className="text-sm font-medium mb-1">Responsiveness</p>
-              {responseComparison !== null ? (
-                <div className="flex items-center gap-2 text-sm">
-                  {responseComparison <= 1.25 ? (
-                    <TrendingUp className="h-4 w-4 text-green-600" />
-                  ) : responseComparison <= 2 ? (
-                    <Minus className="h-4 w-4 text-orange-500" />
-                  ) : (
-                    <TrendingDown className="h-4 w-4 text-red-500" />
-                  )}
-                  <span>
-                    First response was <strong>{responseComparison.toFixed(1)}×</strong>{" "}
-                    {comparisonLabel(responseComparison)}
-                  </span>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">No response recorded yet</p>
-              )}
-            </div>
-            <Separator />
-            {/* Engagement */}
-            <div>
-              <p className="text-sm font-medium mb-1">Engagement</p>
-              <p className="text-sm text-muted-foreground">
-                {(issue.commentCount || 0) >= 10
-                  ? "Highly discussed — complex or contested topic"
-                  : (issue.commentCount || 0) >= 5
-                    ? "Actively discussed"
-                    : (issue.commentCount || 0) >= 1
-                      ? "Some discussion"
-                      : "No discussion"}
-                {commenterCount > 0 &&
-                  ` · ${commenterCount} distinct ${commenterCount === 1 ? "person" : "people"} involved`}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
       </div>
 
       {/* People Involved */}
@@ -731,6 +654,48 @@ export function IssueDetailView({
                     </Badge>
                   </div>
                 ))}
+            {/* Linked issue assignees */}
+            {linkedAssignees
+              .filter((a) => {
+                const assignees = (issue.assigneeUsernames || "").split(",").map((u) => u.trim());
+                const commenters = (issue.uniqueCommenters || "").split(",").map((u) => u.trim());
+                const tasks = issue.taskAssignees || [];
+                return a !== issue.authorUsername && !assignees.includes(a) && !commenters.includes(a) && !tasks.includes(a);
+              })
+              .map((childAssignee, i) => (
+                <div key={`child-${i}`} className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200">
+                  <div className="w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center">
+                    <span className="text-xs font-medium">
+                      {childAssignee.charAt(0).toUpperCase()}
+                    </span>
+                  </div>
+                  <span className="text-sm">@{childAssignee}</span>
+                  <Badge variant="secondary" className="text-[10px] bg-amber-100 text-amber-700">
+                    child assignee
+                  </Badge>
+                </div>
+              ))}
+            {/* Activity actors (created, closed, commented, committed) */}
+            {activityActors
+              .filter((a) => {
+                const assignees = (issue.assigneeUsernames || "").split(",").map((u) => u.trim());
+                const commenters = (issue.uniqueCommenters || "").split(",").map((u) => u.trim());
+                const tasks = issue.taskAssignees || [];
+                return a !== issue.authorUsername && !assignees.includes(a) && !commenters.includes(a) && !tasks.includes(a) && !linkedAssignees.includes(a);
+              })
+              .map((actor, i) => (
+                <div key={`actor-${i}`} className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-teal-50 border border-teal-200">
+                  <div className="w-6 h-6 rounded-full bg-teal-100 flex items-center justify-center">
+                    <span className="text-xs font-medium">
+                      {actor.charAt(0).toUpperCase()}
+                    </span>
+                  </div>
+                  <span className="text-sm">@{actor}</span>
+                  <Badge variant="secondary" className="text-[10px] bg-teal-100 text-teal-700">
+                    contributor
+                  </Badge>
+                </div>
+              ))}
           </div>
         </CardContent>
       </Card>

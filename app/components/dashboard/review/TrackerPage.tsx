@@ -73,9 +73,7 @@ export function TrackerPage() {
       {selectedIssue ? (
         <IssueDetailView
           issue={selectedIssue}
-          onBack={handleBack}
-          teamAvgCycleTime={review?.kpis.avgCycleTime ?? null}
-          teamAvgFirstResponse={review?.kpis.avgFirstResponse ?? null}
+          onBack={() => setClickedIssue(null)}
         />
       ) : (
         <Card>

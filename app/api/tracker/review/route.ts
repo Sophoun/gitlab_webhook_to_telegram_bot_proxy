@@ -192,6 +192,27 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // ---- Activity Actors (who performed any action on each issue) ----
+    const actorActivityRows = await db
+      .select({
+        gitlabProjectId: userActivity.gitlabProjectId,
+        itemIid: userActivity.itemIid,
+        userUsername: userActivity.userUsername,
+      })
+      .from(userActivity)
+      .where(
+        inArray(userActivity.gitlabProjectId, childProjectIds)
+      );
+
+    const activityActorsByKey = new Map<string, Set<string>>();
+    for (const a of actorActivityRows) {
+      const key = `${a.gitlabProjectId}:${a.itemIid}`;
+      if (!a.userUsername) continue;
+      const set = activityActorsByKey.get(key) ?? new Set<string>();
+      set.add(a.userUsername.toLowerCase());
+      activityActorsByKey.set(key, set);
+    }
+
     const issues: ReviewIssue[] = rows
       .map((r) => {
         // Normalize GitLab's "opened" to "open"
@@ -234,6 +255,26 @@ export async function GET(request: NextRequest) {
             linksByMaster.get(`${r.gitlabProjectId}:${r.issueIid}`) ?? [],
           taskAssignees:
             taskAssigneesByKey.get(`${r.gitlabProjectId}:${r.issueIid}`) ?? [],
+          activityActors:
+            (() => {
+              const key = `${r.gitlabProjectId}:${r.issueIid}`;
+              const actors = new Set<string>();
+              // Actors from the main issue
+              const mainActors = activityActorsByKey.get(key);
+              if (mainActors) {
+                for (const a of mainActors) actors.add(a);
+              }
+              // Actors from all linked child issues
+              const linked = linksByMaster.get(key) ?? [];
+              for (const child of linked) {
+                const childKey = `${child.gitlabProjectId}:${child.issueIid}`;
+                const childActors = activityActorsByKey.get(childKey);
+                if (childActors) {
+                  for (const a of childActors) actors.add(a);
+                }
+              }
+              return actors.size > 0 ? Array.from(actors).join(",") : null;
+            })(),
           stageEnteredAt: r.stageEnteredAt
             ? new Date(r.stageEnteredAt).toISOString()
             : null,

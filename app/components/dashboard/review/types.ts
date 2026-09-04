@@ -42,6 +42,8 @@ export interface ReviewIssue {
   type: string | null;
   // Child issues linked from other GitLab projects
   linkedIssues: LinkedIssueInfo[];
+  /** Comma-separated usernames of all people who performed any action (create, close, comment, commit) */
+  activityActors: string | null;
   // Task assignees from issue descriptions (checklist items with @username)
   taskAssignees?: string[];
   // When the issue entered its current board stage
