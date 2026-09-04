@@ -70,6 +70,7 @@ interface OpenTask {
   projectName: string;
   boardStage: string;
   isAssignee: boolean;
+  weight: number | null;
 }
 
 interface AssignedTask {
@@ -97,6 +98,19 @@ interface TeamWeekSectionProps {
   from: string;
   to: string;
   repo?: string | null;
+}
+
+function formatWeight(hours: number): string {
+  if (hours < 8) return `${hours}h`;
+  const days = hours / 8;
+  return `${Math.round(days * 10) / 10}d`;
+}
+
+function getWeightColor(hours: number): string {
+  if (hours <= 8) return "text-green-600";      // 🟢 Up to 1 day
+  if (hours <= 24) return "text-yellow-600";     // 🟡 1-3 days
+  if (hours <= 40) return "text-orange-600";     // 🟠 3-5 days
+  return "text-red-600";                          // 🔴 1+ weeks
 }
 
 type SortField =
@@ -623,6 +637,11 @@ export function TeamWeekSection({
                                               <span className="text-muted-foreground shrink-0 text-xs">
                                                 #{item.issueIid}
                                               </span>
+                                              {item.weight != null && (
+                                                <span className={`text-[10px] font-medium shrink-0 ${getWeightColor(item.weight)}`}>
+                                                  {formatWeight(item.weight)}
+                                                </span>
+                                              )}
                                               <span className="truncate">{item.issueTitle}</span>
                                               {item.projectName && (
                                                 <span className="text-[10px] text-muted-foreground shrink-0 truncate max-w-[100px]">

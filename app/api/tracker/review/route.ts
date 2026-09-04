@@ -114,7 +114,7 @@ export async function GET(request: NextRequest) {
     const childProjectIds = [...new Set(linkRows.map((l) => l.linkedGitlabProjectId))];
     const childAnalyticsByKey = new Map<
       string,
-      { issueTitle: string | null; state: string | null; issueUrl: string | null; assigneeUsernames: string | null }
+      { issueTitle: string | null; state: string | null; issueUrl: string | null; assigneeUsernames: string | null; weight: number | null }
     >();
     for (const pid of childProjectIds) {
       const iids = [
@@ -130,6 +130,7 @@ export async function GET(request: NextRequest) {
           state: issueAnalytics.state,
           issueUrl: issueAnalytics.issueUrl,
           assigneeUsernames: issueAnalytics.assigneeUsernames,
+          weight: issueAnalytics.weight,
         })
         .from(issueAnalytics)
         .where(and(eq(issueAnalytics.gitlabProjectId, pid), inArray(issueAnalytics.issueIid, iids)));
@@ -139,6 +140,7 @@ export async function GET(request: NextRequest) {
           state: c.state,
           issueUrl: c.issueUrl,
           assigneeUsernames: c.assigneeUsernames,
+          weight: c.weight ?? null,
         });
       }
     }
@@ -161,6 +163,7 @@ export async function GET(request: NextRequest) {
         devProgress: prog?.dev ?? null,
         qaProgress: prog?.qa ?? null,
         assigneeUsernames: child?.assigneeUsernames ?? null,
+        weight: child?.weight ?? null,
       });
       linksByMaster.set(key, list);
     }
@@ -278,6 +281,7 @@ export async function GET(request: NextRequest) {
           stageEnteredAt: r.stageEnteredAt
             ? new Date(r.stageEnteredAt).toISOString()
             : null,
+          weight: r.weight ?? null,
         };
       })
       .filter((i) => (status === "open" || status === "closed" ? i.state === status : true));

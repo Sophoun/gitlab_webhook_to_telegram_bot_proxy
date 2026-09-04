@@ -48,6 +48,19 @@ function ageInDays(createdAt: string): number {
   return Math.floor((Date.now() - new Date(createdAt).getTime()) / 86_400_000);
 }
 
+function formatWeight(hours: number): string {
+  if (hours < 8) return `${hours}h`;
+  const days = hours / 8;
+  return `${Math.round(days * 10) / 10}d`;
+}
+
+function getWeightColor(hours: number): string {
+  if (hours <= 8) return "text-green-600";      // 🟢 Up to 1 day
+  if (hours <= 24) return "text-yellow-600";     // 🟡 1-3 days
+  if (hours <= 40) return "text-orange-600";     // 🟠 3-5 days
+  return "text-red-600";                          // 🔴 1+ weeks
+}
+
 function stageDurationDays(issue: ReviewIssue): number {
   const ref = issue.stageEnteredAt || issue.createdAt;
   return Math.floor((Date.now() - new Date(ref).getTime()) / 86_400_000);
@@ -317,6 +330,7 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
               <TableHead>Board Stage</TableHead>
               <TableHead>Progress</TableHead>
               <TableHead>Priority</TableHead>
+              <TableHead>Weight</TableHead>
               <TableHead>
                 <SortHead field="createdAt" onSort={handleSort}>Created</SortHead>
               </TableHead>
@@ -336,7 +350,7 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
           <TableBody>
             {pageRows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={13} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={14} className="text-center py-8 text-muted-foreground">
                   No issues match the current filters
                 </TableCell>
               </TableRow>
@@ -450,6 +464,15 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
                       >
                         {issue.priority}
                       </Badge>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-sm">
+                    {issue.weight ? (
+                      <span className={`font-medium ${getWeightColor(issue.weight)}`}>
+                        {formatWeight(issue.weight)}
+                      </span>
                     ) : (
                       <span className="text-muted-foreground">—</span>
                     )}

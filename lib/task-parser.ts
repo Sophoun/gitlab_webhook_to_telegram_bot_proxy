@@ -55,3 +55,31 @@ export function parseIssueTasks(description: string | null | undefined): ParsedT
 
   return tasks;
 }
+
+/**
+ * Parse issue weight (man-hours) from a GitLab issue description.
+ *
+ * Matches lines like:
+ *   /weight 8
+ *   /weight 13
+ *
+ * Returns the weight as a number, or null if not found.
+ * If multiple /weight commands exist, the last one wins.
+ */
+const WEIGHT_REGEX = /\/weight\s+(\d+)/i;
+
+export function parseWeight(description: string | null | undefined): number | null {
+  if (!description) return null;
+
+  // Find all matches and return the last one (user can update by editing)
+  let lastMatch: RegExpExecArray | null = null;
+  WEIGHT_REGEX.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = WEIGHT_REGEX.exec(description)) !== null) {
+    lastMatch = match;
+  }
+
+  if (!lastMatch) return null;
+  const weight = parseInt(lastMatch[1], 10);
+  return weight > 0 ? weight : null;
+}

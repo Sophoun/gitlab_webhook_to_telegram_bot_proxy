@@ -13,7 +13,7 @@ import {
 import { createGitLabClient } from "@/lib/gitlab-api";
 import { parseProgressCommands, parseProgressUpdate } from "@/lib/progress-parser";
 import { parseCrossProjectRefs } from "@/lib/issue-links";
-import { parseIssueTasks } from "@/lib/task-parser";
+import { parseIssueTasks, parseWeight } from "@/lib/task-parser";
 import { parseBoardLabels } from "@/app/components/dashboard/review/types";
 import { and, eq, ne } from "drizzle-orm";
 
@@ -345,6 +345,7 @@ export async function POST(request: NextRequest) {
                 uniqueCommenters: Array.from(commenters).join(","),
                 boardStage: board.boardStage,
                 stageEnteredAt: lastEventAt,
+                weight: parseWeight(issue.description),
               });
 
               // Upsert progress values parsed from comment commands.

@@ -190,6 +190,7 @@ export function TeamPage() {
         Title: string | null;
         Project: string;
         Stage: string;
+        "Weight (h)": number | null;
         URL: string;
       }> = [];
 
@@ -220,6 +221,7 @@ export function TeamPage() {
                 Title: t.issueTitle,
                 Project: t.projectName,
                 Stage: t.boardStage,
+                "Weight (h)": t.weight ?? null,
                 URL: t.issueUrl || "",
               }));
             } catch {
@@ -232,7 +234,7 @@ export function TeamPage() {
 
       const issueSheet = XLSX.utils.json_to_sheet(issueRows);
       issueSheet["!cols"] = [
-        { wch: 20 }, { wch: 10 }, { wch: 40 }, { wch: 25 }, { wch: 16 }, { wch: 60 },
+        { wch: 20 }, { wch: 10 }, { wch: 40 }, { wch: 25 }, { wch: 16 }, { wch: 12 }, { wch: 60 },
       ];
       // Enable auto-filter on the header row
       if (issueRows.length > 0) {

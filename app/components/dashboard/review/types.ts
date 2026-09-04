@@ -9,6 +9,7 @@ export interface LinkedIssueInfo {
   devProgress: number | null;
   qaProgress: number | null;
   assigneeUsernames: string | null;
+  weight: number | null;
 }
 
 export interface ReviewIssue {
@@ -44,6 +45,8 @@ export interface ReviewIssue {
   linkedIssues: LinkedIssueInfo[];
   /** Comma-separated usernames of all people who performed any action (create, close, comment, commit) */
   activityActors: string | null;
+  /** Estimated man-hours from /weight command */
+  weight: number | null;
   // Task assignees from issue descriptions (checklist items with @username)
   taskAssignees?: string[];
   // When the issue entered its current board stage

@@ -66,6 +66,19 @@ export function IssueDetailView({
     ? issue.uniqueCommenters.split(",").filter((c) => c.trim()).length
     : 0;
 
+  const formatWeight = (hours: number): string => {
+    if (hours < 8) return `${hours}h`;
+    const days = hours / 8;
+    return `${Math.round(days * 10) / 10}d`;
+  };
+
+  const getWeightColor = (hours: number): string => {
+    if (hours <= 8) return "text-green-600";      // 🟢 Up to 1 day
+    if (hours <= 24) return "text-yellow-600";     // 🟡 1-3 days
+    if (hours <= 40) return "text-orange-600";     // 🟠 3-5 days
+    return "text-red-600";                          // 🔴 1+ weeks
+  };
+
   // Collect all people involved: author, assignees, commenters, task assignees, linked issue assignees
   const linkedAssignees = useMemo(() => {
     const set = new Set<string>();
@@ -157,6 +170,11 @@ export function IssueDetailView({
             <Badge variant={issue.priority === "P0" ? "destructive" : "secondary"} className="gap-1">
               <Flag className="h-3 w-3" />
               {issue.priority}
+            </Badge>
+          )}
+          {issue.weight && (
+            <Badge variant="outline" className={`gap-1 ${getWeightColor(issue.weight)}`}>
+              {formatWeight(issue.weight)}
             </Badge>
           )}
           {issue.team && (
@@ -411,6 +429,11 @@ export function IssueDetailView({
                   <Badge variant={closed ? "secondary" : "outline"} className="text-xs shrink-0">
                     {closed ? "closed" : child.state === "unknown" ? "?" : "open"}
                   </Badge>
+                  {child.weight && (
+                    <span className={`text-xs font-medium shrink-0 ${getWeightColor(child.weight)}`}>
+                      {formatWeight(child.weight)}
+                    </span>
+                  )}
                   <span className="font-mono text-xs text-muted-foreground shrink-0">
                     #{child.issueIid}
                   </span>

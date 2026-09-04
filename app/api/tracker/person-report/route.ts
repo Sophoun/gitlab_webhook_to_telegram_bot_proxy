@@ -255,6 +255,7 @@ export async function GET(request: NextRequest) {
       boardStage: string;
       isAssignee: boolean;
       createdAt: string | null;
+      weight: number | null;
     }> = [];
 
     for (const r of openTaskRows) {
@@ -270,6 +271,7 @@ export async function GET(request: NextRequest) {
         boardStage: parseBoardLabels(r.labels, "open").boardStage,
         isAssignee,
         createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : null,
+        weight: r.weight ?? null,
       });
     }
     openTasks.sort((a, b) => a.issueIid - b.issueIid);
