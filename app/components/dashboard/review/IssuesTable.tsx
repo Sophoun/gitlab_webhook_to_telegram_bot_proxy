@@ -61,6 +61,12 @@ function getWeightColor(hours: number): string {
   return "text-red-600";                          // 🔴 1+ weeks
 }
 
+function totalWeight(issue: ReviewIssue): number {
+  const own = issue.weight ?? 0;
+  const children = issue.linkedIssues.reduce((sum, c) => sum + (c.weight ?? 0), 0);
+  return own + children;
+}
+
 function stageDurationDays(issue: ReviewIssue): number {
   const ref = issue.stageEnteredAt || issue.createdAt;
   return Math.floor((Date.now() - new Date(ref).getTime()) / 86_400_000);
@@ -176,6 +182,9 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
         }
         case "commentCount":
           return ((a.commentCount || 0) - (b.commentCount || 0)) * dir;
+        case "weight": {
+          return (totalWeight(a) - totalWeight(b)) * dir;
+        }
         case "issueTitle":
           return (a.issueTitle || "").localeCompare(b.issueTitle || "") * dir;
         case "stage": {
@@ -330,7 +339,7 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
               <TableHead>Board Stage</TableHead>
               <TableHead>Progress</TableHead>
               <TableHead>Priority</TableHead>
-              <TableHead>Weight</TableHead>
+              <TableHead><SortHead field="weight" onSort={handleSort}>Total Hours</SortHead></TableHead>
               <TableHead>
                 <SortHead field="createdAt" onSort={handleSort}>Created</SortHead>
               </TableHead>
@@ -469,13 +478,27 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
                     )}
                   </TableCell>
                   <TableCell className="text-sm">
-                    {issue.weight ? (
-                      <span className={`font-medium ${getWeightColor(issue.weight)}`}>
-                        {formatWeight(issue.weight)}
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
+                    {(() => {
+                      const total = totalWeight(issue);
+                      const childWeight = issue.linkedIssues.reduce((s, c) => s + (c.weight ?? 0), 0);
+                      if (total > 0) {
+                        return (
+                          <span className={`font-medium ${getWeightColor(total)}`} title={
+                            issue.weight && childWeight > 0
+                              ? `Own: ${formatWeight(issue.weight)} + Children: ${formatWeight(childWeight)}`
+                              : undefined
+                          }>
+                            {formatWeight(total)}
+                            {childWeight > 0 && issue.weight ? (
+                              <span className="text-muted-foreground text-xs ml-1">
+                                ({formatWeight(issue.weight)}+{formatWeight(childWeight)})
+                              </span>
+                            ) : null}
+                          </span>
+                        );
+                      }
+                      return <span className="text-muted-foreground">—</span>;
+                    })()}
                   </TableCell>
                   <TableCell className="text-sm whitespace-nowrap">
                     {new Date(issue.createdAt).toLocaleDateString()}
