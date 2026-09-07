@@ -237,6 +237,7 @@ export async function GET(request: NextRequest) {
         labels: issueAnalytics.labels,
         assigneeUsernames: issueAnalytics.assigneeUsernames,
         createdAt: issueAnalytics.createdAt,
+        weight: issueAnalytics.weight,
       })
       .from(issueAnalytics)
       .where(

@@ -45,7 +45,7 @@ export interface ReviewIssue {
   linkedIssues: LinkedIssueInfo[];
   /** Comma-separated usernames of all people who performed any action (create, close, comment, commit) */
   activityActors: string | null;
-  /** Estimated man-hours from /weight command */
+  /** Estimated man-hours from /hour command */
   weight: number | null;
   // Task assignees from issue descriptions (checklist items with @username)
   taskAssignees?: string[];

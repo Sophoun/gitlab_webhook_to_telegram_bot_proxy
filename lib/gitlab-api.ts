@@ -109,12 +109,50 @@ export interface GitLabBranch {
   };
 }
 
-const RATE_LIMIT_DELAY = 200; // 200ms between requests (GitLab allows ~60 req/min)
+const RATE_LIMIT_DELAY = 200; // 200ms between requests per worker
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 2000;
 
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Map over items with bounded concurrency. Runs up to `limit` async callbacks
+ * in parallel. Results are collected in the same order as the input array.
+ *
+ * Used to parallelize GitLab API calls (notes, links, commits) — each worker
+ * independently applies RATE_LIMIT_DELAY between its own requests. With 5
+ * workers this gives ~5 req/s total while keeping actual parallelism.
+ * If any request hits 429, fetchWithRetry handles backoff.
+ */
+async function parallelMap<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+  onProgress?: (completed: number, total: number) => void
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  let completed = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const i = nextIndex++;
+      results[i] = await fn(items[i], i);
+      completed++;
+      if (onProgress && completed % 10 === 0) {
+        onProgress(completed, items.length);
+      }
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(limit, items.length) }, () => worker());
+  await Promise.all(workers);
+  if (onProgress && completed % 10 !== 0) {
+    onProgress(completed, items.length);
+  }
+  return results;
 }
 
 async function fetchWithRetry(
@@ -473,19 +511,25 @@ export class GitLabClient {
 
     const seen = new Set<string>();
     const all: GitLabCommit[] = [];
-    for (const ref of branches) {
+
+    // Fetch commits from all branches concurrently (bounded by parallelMap)
+    const branchResults = await parallelMap(branches, 5, async (ref) => {
       try {
-        const branchCommits = await this.getCommits(projectId, since, undefined, ref);
-        for (const c of branchCommits) {
-          if (!seen.has(c.id)) {
-            seen.add(c.id);
-            all.push(c);
-          }
-        }
+        return await this.getCommits(projectId, since, undefined, ref);
       } catch (error) {
         console.warn(
           `    Could not fetch commits for branch ${ref}: ${error instanceof Error ? error.message : error}`
         );
+        return [] as GitLabCommit[];
+      }
+    });
+
+    for (const branchCommits of branchResults) {
+      for (const c of branchCommits) {
+        if (!seen.has(c.id)) {
+          seen.add(c.id);
+          all.push(c);
+        }
       }
     }
     return all;
@@ -496,3 +540,5 @@ export function createGitLabClient(project: Project): GitLabClient {
   const apiBase = project.gitlabApiBase || "https://gitlab.com/api/v4";
   return new GitLabClient(apiBase, project.gitlabPat);
 }
+
+export { parallelMap };

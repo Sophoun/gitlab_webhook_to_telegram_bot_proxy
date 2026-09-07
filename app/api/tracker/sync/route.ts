@@ -10,7 +10,7 @@ import {
   issueTasks,
   gitlabRepos,
 } from "@/db/schema";
-import { createGitLabClient } from "@/lib/gitlab-api";
+import { createGitLabClient, parallelMap } from "@/lib/gitlab-api";
 import { parseProgressCommands, parseProgressUpdate } from "@/lib/progress-parser";
 import { parseCrossProjectRefs } from "@/lib/issue-links";
 import { parseIssueTasks, parseWeight } from "@/lib/task-parser";
@@ -168,6 +168,15 @@ export async function POST(request: NextRequest) {
           const issueProgressHistoryToInsert: Array<typeof issueProgressHistory.$inferInsert> = [];
           const issueLinksToInsert: Array<typeof issueLinks.$inferInsert> = [];
           const issueTasksToInsert: Array<typeof issueTasks.$inferInsert> = [];
+          const progressToUpsert: Array<{
+            projectId: number;
+            gitlabProjectId: number;
+            issueIid: number;
+            stage: "dev" | "qa";
+            progress: number;
+            updatedBy: string;
+            updatedAt: Date;
+          }> = [];
 
           // Namespace path -> GitLab project id, for resolving description refs
           const pathToProjectId = new Map<string, number>();
@@ -180,8 +189,34 @@ export async function POST(request: NextRequest) {
           stats.issuesFetched += issues.length;
           console.log(`    Found ${issues.length} issues`);
 
-          // Process issues and fetch their notes for analytics
-          for (const issue of issues) {
+          // ── Phase 1: Fetch notes + links for ALL issues in parallel ──────
+          // This is the main speedup — instead of fetching notes for each issue
+          // sequentially (N × 200ms+ per API call), we batch them concurrently.
+          // Global rate limiter ensures we don't exceed GitLab's 60 req/min.
+          const CONCURRENCY = 5;
+          const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
+          const issueData = await parallelMap(issues, CONCURRENCY, async (issue) => {
+            // Skip notes for issues closed >90 days ago — they're rarely
+            // updated and notes fetching is the main bottleneck.
+            const isStaleClosed =
+              issue.state === "closed" &&
+              issue.closed_at &&
+              Date.now() - new Date(issue.closed_at).getTime() > NINETY_DAYS_MS;
+
+            const [notes, links] = await Promise.all([
+              isStaleClosed
+                ? Promise.resolve([] as import("@/lib/gitlab-api").GitLabNote[])
+                : client.getIssueNotes(gitlabProject.id, issue.iid).catch(() => [] as import("@/lib/gitlab-api").GitLabNote[]),
+              client.getIssueLinks(gitlabProject.id, issue.iid).catch(() => [] as import("@/lib/gitlab-api").GitLabIssueLink[]),
+            ]);
+            return { issue, notes, links };
+          }, (completed, total) => {
+            console.log(`    Progress: ${completed}/${total} issues fetched (notes+links)`);
+          });
+
+          // ── Phase 2: Process fetched data sequentially (fast) ────────────
+          const _ph = (msg: string) => { console.log(`[sync] ${msg}`); };
+          for (const { issue, notes, links } of issueData) {
             // Track the most recent event for stageEnteredAt
             let lastEventAt = new Date(issue.created_at);
 
@@ -224,9 +259,8 @@ export async function POST(request: NextRequest) {
               });
             }
 
-            // Fetch issue notes for analytics (timing + collaboration)
+            // Process pre-fetched issue notes for analytics (timing + collaboration)
             try {
-              const notes = await client.getIssueNotes(gitlabProject.id, issue.iid);
               const nonSystemNotes = notes.filter((n) => !n.system);
 
               // Find first response (first comment by someone other than author)
@@ -348,7 +382,7 @@ export async function POST(request: NextRequest) {
                 weight: parseWeight(issue.description),
               });
 
-              // Upsert progress values parsed from comment commands.
+              // Collect progress values parsed from comment commands.
               // issue_progress is NOT wiped by sync — it persists across runs,
               // so only update rows when a command was actually found.
               const progressEntries = [
@@ -357,76 +391,52 @@ export async function POST(request: NextRequest) {
               ];
               for (const { stage, entry } of progressEntries) {
                 if (!entry) continue;
-                await db
-                  .insert(issueProgress)
-                  .values({
-                    projectId: config.id,
-                    gitlabProjectId: gitlabProject.id,
-                    issueIid: issue.iid,
-                    stage,
-                    progress: entry.value,
-                    updatedBy: entry.by,
-                    updatedAt: entry.at,
-                  })
-                  .onConflictDoUpdate({
-                    target: [
-                      issueProgress.gitlabProjectId,
-                      issueProgress.issueIid,
-                      issueProgress.stage,
-                    ],
-                    set: {
-                      progress: entry.value,
-                      updatedBy: entry.by,
-                      updatedAt: entry.at,
-                    },
-                  });
-                stats.progressUpdatesRecorded++;
-              }
-            } catch (error) {
-              console.error(`    Error fetching notes for issue ${issue.iid}:`, error);
-            }
-
-            // Linked issues (main projects only): formal "Linked issues"
-            // relations + cross-project `path#iid` references in the description
-              // Fetch linked issues and cross-project refs for ALL projects
-              const seenTargets = new Set<string>();
-              const addLink = (
-                targetProjectId: number,
-                targetIid: number,
-                linkType: string
-              ) => {
-                if (!targetProjectId || targetProjectId <= 0) return;
-                const key = `${targetProjectId}#${targetIid}`;
-                if (key === `${gitlabProject.id}#${issue.iid}`) return; // self-link
-                if (seenTargets.has(key)) return;
-                seenTargets.add(key);
-                issueLinksToInsert.push({
+                progressToUpsert.push({
                   projectId: config.id,
                   gitlabProjectId: gitlabProject.id,
                   issueIid: issue.iid,
-                  linkedGitlabProjectId: targetProjectId,
-                  linkedIssueIid: targetIid,
-                  linkType,
+                  stage,
+                  progress: entry.value,
+                  updatedBy: entry.by,
+                  updatedAt: entry.at,
                 });
-              };
-
-              try {
-                const links = await client.getIssueLinks(gitlabProject.id, issue.iid);
-                for (const l of links) {
-                  addLink(l.project_id, l.iid, l.link_type || "relates_to");
-                }
-              } catch (error) {
-                console.warn(
-                  `    Could not fetch links for issue ${issue.iid}: ${error instanceof Error ? error.message : error}`
-                );
               }
+            } catch (error) {
+              console.error(`Error processing notes for issue ${issue.iid}:`, error);
+            }
 
-              for (const ref of parseCrossProjectRefs(issue.description)) {
-                const targetId = pathToProjectId.get(ref.path.toLowerCase());
-                if (targetId !== undefined) {
-                  addLink(targetId, ref.iid, "description_ref");
-                }
+            // Linked issues: process pre-fetched links
+            const seenTargets = new Set<string>();
+            const addLink = (
+              targetProjectId: number,
+              targetIid: number,
+              linkType: string
+            ) => {
+              if (!targetProjectId || targetProjectId <= 0) return;
+              const key = `${targetProjectId}#${targetIid}`;
+              if (key === `${gitlabProject.id}#${issue.iid}`) return; // self-link
+              if (seenTargets.has(key)) return;
+              seenTargets.add(key);
+              issueLinksToInsert.push({
+                projectId: config.id,
+                gitlabProjectId: gitlabProject.id,
+                issueIid: issue.iid,
+                linkedGitlabProjectId: targetProjectId,
+                linkedIssueIid: targetIid,
+                linkType,
+              });
+            };
+
+            for (const l of links) {
+              addLink(l.project_id, l.iid, l.link_type || "relates_to");
+            }
+
+            for (const ref of parseCrossProjectRefs(issue.description)) {
+              const targetId = pathToProjectId.get(ref.path.toLowerCase());
+              if (targetId !== undefined) {
+                addLink(targetId, ref.iid, "description_ref");
               }
+            }
 
             // Parse tasks from issue description (all projects)
             const parsedTasks = parseIssueTasks(issue.description);
@@ -477,10 +487,13 @@ export async function POST(request: NextRequest) {
             }
           }
 
+          _ph(`Phase 2 done: ${issueData.length} issues processed`);
+
           // Fetch merge requests
+          _ph(`Fetching merge requests...`);
           const mergeRequests = await client.getMergeRequests(gitlabProject.id, from_date);
           stats.mrsFetched += mergeRequests.length;
-          console.log(`    Found ${mergeRequests.length} merge requests`);
+          _ph(`Found ${mergeRequests.length} merge requests`);
 
           for (const mr of mergeRequests) {
             const mrAuthorUsername = mr.author.username.toLowerCase();
@@ -538,13 +551,14 @@ export async function POST(request: NextRequest) {
 
           // Fetch commits across ALL recently-active branches — the default
           // branch alone hides feature-branch work until it's merged.
+          _ph(`Fetching branch commits...`);
           const commits = await client.getAllBranchCommits(
             gitlabProject.id,
             from_date,
             gitlabProject.default_branch
           );
           stats.commitsFetched += commits.length;
-          console.log(`    Found ${commits.length} commits`);
+          _ph(`Found ${commits.length} commits`);
 
           // Build email/name -> GitLab username maps from project members so
           // commits are attributed to real users instead of email prefixes.
@@ -606,8 +620,7 @@ export async function POST(request: NextRequest) {
             });
           }
 
-          // Delete existing records for this project BEFORE inserting new data
-          // (only after fetch succeeds, so old data survives if fetch fails)
+          _ph(`Deleting old records...`);
           await db.delete(userActivity).where(
             eq(userActivity.gitlabProjectId, gitlabProject.id)
           );
@@ -633,7 +646,7 @@ export async function POST(request: NextRequest) {
               await db.insert(userActivity).values(batch);
             }
             stats.activitiesRecorded += activitiesToInsert.length;
-            console.log(`    Inserted ${activitiesToInsert.length} activities`);
+            _ph(`Inserted ${activitiesToInsert.length} activities`);
           }
 
           // Batch insert issue analytics
@@ -658,6 +671,33 @@ export async function POST(request: NextRequest) {
             console.log(
               `    Recorded ${issueProgressHistoryToInsert.length} progress history entries`
             );
+          }
+
+          // Batch upsert progress values (much faster than per-issue upserts)
+          if (progressToUpsert.length > 0) {
+            const BATCH_SIZE = 100;
+            for (let i = 0; i < progressToUpsert.length; i += BATCH_SIZE) {
+              const batch = progressToUpsert.slice(i, i + BATCH_SIZE);
+              for (const entry of batch) {
+                await db
+                  .insert(issueProgress)
+                  .values(entry)
+                  .onConflictDoUpdate({
+                    target: [
+                      issueProgress.gitlabProjectId,
+                      issueProgress.issueIid,
+                      issueProgress.stage,
+                    ],
+                    set: {
+                      progress: entry.progress,
+                      updatedBy: entry.updatedBy,
+                      updatedAt: entry.updatedAt,
+                    },
+                  });
+              }
+            }
+            stats.progressUpdatesRecorded += progressToUpsert.length;
+            console.log(`    Upserted ${progressToUpsert.length} progress values`);
           }
 
           // Batch insert issue links (main projects only)

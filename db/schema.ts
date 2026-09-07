@@ -83,7 +83,7 @@ export const issueAnalytics = sqliteTable("issue_analytics", {
   boardStage: text("board_stage"), // current stage computed from labels
   stageEnteredAt: integer("stage_entered_at", { mode: "timestamp" }), // when issue entered current stage
   
-  // Weight (man-hours) parsed from /weight command in description
+  // Weight (man-hours) parsed from /hour command in description
   weight: integer("weight"),
   
   syncedAt: integer("synced_at", { mode: "timestamp" }).$defaultFn(() => new Date()),

@@ -214,6 +214,7 @@ export function TeamPage() {
                 issueUrl: string | null;
                 projectName: string;
                 boardStage: string;
+                weight: number | null;
               }> = data.openTasks || [];
               return tasks.map((t) => ({
                 Person: p.name,

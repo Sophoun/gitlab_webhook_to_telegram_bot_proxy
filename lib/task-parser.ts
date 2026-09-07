@@ -60,13 +60,13 @@ export function parseIssueTasks(description: string | null | undefined): ParsedT
  * Parse issue weight (man-hours) from a GitLab issue description.
  *
  * Matches lines like:
- *   /weight 8
- *   /weight 13
+ *   /hour 8
+ *   /hour 13
  *
  * Returns the weight as a number, or null if not found.
- * If multiple /weight commands exist, the last one wins.
+ * If multiple /hour commands exist, the last one wins.
  */
-const WEIGHT_REGEX = /\/weight\s+(\d+)/i;
+const WEIGHT_REGEX = /\/hour\s+(\d+)/gi;
 
 export function parseWeight(description: string | null | undefined): number | null {
   if (!description) return null;
