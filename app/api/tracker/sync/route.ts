@@ -271,6 +271,8 @@ export async function POST(request: NextRequest) {
               // (/dev 60, /test 30%, /uat 35) — later notes win.
               let devProgressEntry: { value: number; at: Date; by: string } | null = null;
               let qaProgressEntry: { value: number; at: Date; by: string } | null = null;
+              // Latest /hour command from comments — overrides description weight
+              let noteWeightEntry: { value: number; at: Date } | null = null;
 
               for (const note of nonSystemNotes) {
                 const noteUsername = note.author.username.toLowerCase();
@@ -320,6 +322,15 @@ export async function POST(request: NextRequest) {
                       at: noteAt,
                       by: noteUsername,
                     };
+                  }
+                }
+
+                // Parse /hour command from notes (overrides description weight)
+                const noteWeight = parseWeight(note.body);
+                if (noteWeight !== null) {
+                  const noteAt = new Date(note.created_at);
+                  if (!noteWeightEntry || noteAt >= noteWeightEntry.at) {
+                    noteWeightEntry = { value: noteWeight, at: noteAt };
                   }
                 }
 
@@ -379,7 +390,7 @@ export async function POST(request: NextRequest) {
                 uniqueCommenters: Array.from(commenters).join(","),
                 boardStage: board.boardStage,
                 stageEnteredAt: lastEventAt,
-                weight: parseWeight(issue.description),
+                weight: noteWeightEntry?.value ?? parseWeight(issue.description),
               });
 
               // Collect progress values parsed from comment commands.
