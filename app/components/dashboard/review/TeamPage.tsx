@@ -190,6 +190,7 @@ export function TeamPage() {
         Title: string | null;
         Project: string;
         Stage: string;
+        "Start Date": string;
         "Weight (h)": number | null;
         URL: string;
       }> = [];
@@ -215,6 +216,7 @@ export function TeamPage() {
                 projectName: string;
                 boardStage: string;
                 weight: number | null;
+                stageEnteredAt: string | null;
               }> = data.openTasks || [];
               return tasks.map((t) => ({
                 Person: p.name,
@@ -222,6 +224,9 @@ export function TeamPage() {
                 Title: t.issueTitle,
                 Project: t.projectName,
                 Stage: t.boardStage,
+                "Start Date": t.stageEnteredAt
+                  ? new Date(t.stageEnteredAt).toLocaleDateString()
+                  : "",
                 "Weight (h)": t.weight ?? null,
                 URL: t.issueUrl || "",
               }));
@@ -235,12 +240,12 @@ export function TeamPage() {
 
       const issueSheet = XLSX.utils.json_to_sheet(issueRows);
       issueSheet["!cols"] = [
-        { wch: 20 }, { wch: 10 }, { wch: 40 }, { wch: 25 }, { wch: 16 }, { wch: 12 }, { wch: 60 },
+        { wch: 20 }, { wch: 10 }, { wch: 40 }, { wch: 25 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 60 },
       ];
       // Enable auto-filter on the header row
       if (issueRows.length > 0) {
         issueSheet["!autofilter"] = {
-          ref: `A1:F${issueRows.length + 1}`,
+          ref: `A1:G${issueRows.length + 1}`,
         };
       }
 

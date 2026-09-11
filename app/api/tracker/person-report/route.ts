@@ -238,6 +238,7 @@ export async function GET(request: NextRequest) {
         assigneeUsernames: issueAnalytics.assigneeUsernames,
         createdAt: issueAnalytics.createdAt,
         weight: issueAnalytics.weight,
+        stageEnteredAt: issueAnalytics.stageEnteredAt,
       })
       .from(issueAnalytics)
       .where(
@@ -257,22 +258,28 @@ export async function GET(request: NextRequest) {
       isAssignee: boolean;
       createdAt: string | null;
       weight: number | null;
+      stageEnteredAt: string | null;
     }> = [];
 
     for (const r of openTaskRows) {
       const assignees = (r.assigneeUsernames || "").split(",").map((a) => a.trim());
       const isAssignee = assignees.includes(user.toLowerCase());
       if (!isAssignee) continue;
+      const boardStage = parseBoardLabels(r.labels, "open").boardStage;
       openTasks.push({
         gitlabProjectId: r.gitlabProjectId,
         issueIid: r.issueIid,
         issueTitle: r.issueTitle,
         issueUrl: r.issueUrl,
         projectName: repoNames.get(r.gitlabProjectId) ?? String(r.gitlabProjectId),
-        boardStage: parseBoardLabels(r.labels, "open").boardStage,
+        boardStage,
         isAssignee,
         createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : null,
         weight: r.weight ?? null,
+        stageEnteredAt:
+          boardStage === "In Progress" && r.stageEnteredAt
+            ? new Date(r.stageEnteredAt).toISOString()
+            : null,
       });
     }
     openTasks.sort((a, b) => a.issueIid - b.issueIid);

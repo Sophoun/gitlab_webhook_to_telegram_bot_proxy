@@ -118,6 +118,10 @@ export function ReviewOverview() {
       const attentionRows: Array<Record<string, string | number>> = [];
       for (const cat of attention) {
         for (const i of cat.issues) {
+          const startDate =
+            i.boardStage === "In Progress" && i.stageEnteredAt
+              ? new Date(i.stageEnteredAt).toLocaleDateString()
+              : "";
           attentionRows.push({
             Category: cat.title,
             IID: i.issueIid,
@@ -129,6 +133,7 @@ export function ReviewOverview() {
               .filter(Boolean)
               .join(", "),
             Stage: i.boardStage,
+            "Start Date": startDate,
             "Dev Progress (%)": i.devProgress ?? "",
             "QA Progress (%)": i.qaProgress ?? "",
             Priority: i.priority || "",
@@ -140,40 +145,48 @@ export function ReviewOverview() {
       const attentionSheet = XLSX.utils.json_to_sheet(attentionRows);
       attentionSheet["!cols"] = [
         { wch: 24 }, { wch: 8 }, { wch: 50 }, { wch: 20 }, { wch: 20 }, { wch: 14 },
-        { wch: 15 }, { wch: 15 }, { wch: 10 }, { wch: 12 }, { wch: 40 },
+        { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 10 }, { wch: 12 }, { wch: 40 },
       ];
 
       // Sheet: All Issues
       const issueSheet = XLSX.utils.json_to_sheet(
-        issues.map((i) => ({
-          IID: i.issueIid,
-          Title: i.issueTitle || "",
-          Project: i.projectName || "",
-          Author: i.authorName,
-          Assignees: (i.assigneeUsernames || "")
-            .split(",")
-            .map((a) => a.trim())
-            .filter(Boolean)
-            .join(", "),
-          Status: i.state,
-          "Board Stage": i.boardStage,
-          "Dev Progress (%)": i.devProgress ?? "",
-          "QA Progress (%)": i.qaProgress ?? "",
-          Priority: i.priority || "",
-          Team: i.team || "",
-          Type: i.type || "",
-          Created: i.createdAt ? new Date(i.createdAt).toLocaleDateString() : "",
-          Closed: i.closedAt ? new Date(i.closedAt).toLocaleDateString() : "",
-          "Age (days)": i.state === "open" ? ageDays(i.createdAt) : "",
-          "Cycle Time (hours)": i.timeToCloseHours ?? "",
-          Comments: i.commentCount ?? 0,
-          URL: i.issueUrl || "",
-        }))
+        issues.map((i) => {
+          const startDate =
+            i.boardStage === "In Progress" && i.stageEnteredAt
+              ? new Date(i.stageEnteredAt).toLocaleDateString()
+              : "";
+          return {
+            IID: i.issueIid,
+            Title: i.issueTitle || "",
+            Project: i.projectName || "",
+            Author: i.authorName,
+            Assignees: (i.assigneeUsernames || "")
+              .split(",")
+              .map((a) => a.trim())
+              .filter(Boolean)
+              .join(", "),
+            Status: i.state,
+            "Board Stage": i.boardStage,
+            "Start Date": startDate,
+            "Dev Progress (%)": i.devProgress ?? "",
+            "QA Progress (%)": i.qaProgress ?? "",
+            Priority: i.priority || "",
+            Team: i.team || "",
+            Type: i.type || "",
+            Created: i.createdAt ? new Date(i.createdAt).toLocaleDateString() : "",
+            Closed: i.closedAt ? new Date(i.closedAt).toLocaleDateString() : "",
+            "Age (days)": i.state === "open" ? ageDays(i.createdAt) : "",
+            "Cycle Time (hours)": i.timeToCloseHours ?? "",
+            Comments: i.commentCount ?? 0,
+            URL: i.issueUrl || "",
+          };
+        })
       );
       issueSheet["!cols"] = [
         { wch: 8 }, { wch: 50 }, { wch: 16 }, { wch: 20 }, { wch: 20 }, { wch: 9 },
-        { wch: 14 }, { wch: 15 }, { wch: 15 }, { wch: 10 }, { wch: 10 }, { wch: 12 },
-        { wch: 12 }, { wch: 12 }, { wch: 11 }, { wch: 17 }, { wch: 10 }, { wch: 40 },
+        { wch: 14 }, { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 10 }, { wch: 10 },
+        { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 11 }, { wch: 11 }, { wch: 17 },
+        { wch: 10 }, { wch: 40 },
       ];
 
       const wb = XLSX.utils.book_new();
