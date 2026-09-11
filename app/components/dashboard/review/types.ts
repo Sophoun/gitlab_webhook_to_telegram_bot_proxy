@@ -167,6 +167,39 @@ export function parseBoardLabels(
   return { boardStage, priority, team, type };
 }
 
+/** Descriptive label for a priority code (P0 → "Urgent", etc.) */
+export function priorityLabel(priority: string | null): string {
+  switch (priority) {
+    case "P0": return "Urgent";
+    case "P1": return "High";
+    case "P2": return "Medium";
+    case "P3": return "Low";
+    case "P4": return "Lowest";
+    default: return "Unset";
+  }
+}
+
+/** Tailwind bg class for priority dot/badge coloring */
+export function priorityDotColor(priority: string | null): string {
+  switch (priority) {
+    case "P0": return "bg-red-500";
+    case "P1": return "bg-orange-400";
+    case "P2": return "bg-yellow-400";
+    case "P3": return "bg-blue-400";
+    case "P4": return "bg-gray-400";
+    default: return "bg-gray-300";
+  }
+}
+
+/** Tailwind text+bg class for priority badge */
+export function priorityBadgeVariant(priority: string | null): string {
+  switch (priority) {
+    case "P0": return "destructive";
+    case "P1": return "default";
+    default: return "secondary";
+  }
+}
+
 export interface ReviewKpis {
   totalIssues: number;
   openIssues: number;

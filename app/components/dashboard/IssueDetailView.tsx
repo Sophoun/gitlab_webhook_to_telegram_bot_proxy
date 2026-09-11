@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { WORKFLOW_STAGES, getStageProgress, type ReviewIssue } from "./review/types";
+import { WORKFLOW_STAGES, getStageProgress, priorityLabel, type ReviewIssue } from "./review/types";
 import { Progress } from "@/components/ui/progress";
 import {
   ExternalLink,
@@ -169,7 +169,7 @@ export function IssueDetailView({
           {issue.priority && (
             <Badge variant={issue.priority === "P0" ? "destructive" : "secondary"} className="gap-1">
               <Flag className="h-3 w-3" />
-              {issue.priority}
+              {issue.priority} — {priorityLabel(issue.priority)}
             </Badge>
           )}
           {issue.weight && (

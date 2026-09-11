@@ -3,7 +3,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { WIP_LIMIT } from "./types";
+import { WIP_LIMIT, priorityLabel, priorityDotColor } from "./types";
 import { Columns3, Flag, UsersRound, Hammer, FlaskConical } from "lucide-react";
 
 interface BoardOverviewProps {
@@ -66,19 +66,15 @@ export function BoardOverview({
             <p className="text-sm font-medium mb-2 flex items-center gap-1.5">
               <Flag className="h-3.5 w-3.5" />
               Open Issues by Priority
-              <span className="text-[10px] font-normal text-muted-foreground" title="P0 = urgent, P3 = low priority">
-                (P0 = urgent)
-              </span>
             </p>
-            <div className="flex flex-wrap gap-2">
+            <div className="space-y-1.5">
               {priorityBreakdown.map((p) => (
-                <Badge
-                  key={p.priority}
-                  variant={p.priority === "P0" && p.openCount > 0 ? "destructive" : "secondary"}
-                  className="text-xs"
-                >
-                  {p.priority}: {p.openCount}
-                </Badge>
+                <div key={p.priority} className="flex items-center gap-2 text-sm">
+                  <span className={`h-2 w-2 rounded-full shrink-0 ${priorityDotColor(p.priority)}`} />
+                  <span className="font-medium w-16">{p.priority}</span>
+                  <span className="text-muted-foreground">{priorityLabel(p.priority)}</span>
+                  <span className="ml-auto font-semibold">{p.openCount}</span>
+                </div>
               ))}
             </div>
           </div>

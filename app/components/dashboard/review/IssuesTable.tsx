@@ -13,7 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ExternalLink, ArrowUpDown, ChevronLeft, ChevronRight } from "lucide-react";
-import { WORKFLOW_STAGES, TEAM_LABELS, getStageProgress, type ReviewIssue } from "./types";
+import { WORKFLOW_STAGES, TEAM_LABELS, getStageProgress, priorityLabel, type ReviewIssue } from "./types";
 import { Progress } from "@/components/ui/progress";
 
 function SortHead({
@@ -278,7 +278,7 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
           }}
           className="h-9 rounded-md border bg-background px-3 text-sm"
           aria-label="Filter by priority"
-          title="Filter by priority (P0 = urgent)"
+          title="Filter by priority (P0=Urgent, P1=High, P2=Medium, P3=Low)"
         >
           <option value="All">Priority: All</option>
           {priorityOptions.map((p) => (
@@ -471,7 +471,7 @@ export function IssuesTable({ issues, initialSortBy, onSelectIssue }: IssuesTabl
                         }
                         className="text-xs"
                       >
-                        {issue.priority}
+                        {issue.priority} {priorityLabel(issue.priority)}
                       </Badge>
                     ) : (
                       <span className="text-muted-foreground">—</span>
