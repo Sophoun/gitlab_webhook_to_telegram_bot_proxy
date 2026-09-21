@@ -47,10 +47,14 @@ export interface ReviewIssue {
   activityActors: string | null;
   /** Estimated man-hours from /hour command */
   weight: number | null;
+  /** Earliest /dev command timestamp — when work started */
+  startDate: number | null;
   // Task assignees from issue descriptions (checklist items with @username)
   taskAssignees?: string[];
   // When the issue entered its current board stage
   stageEnteredAt?: string | null;
+  // First time the issue moved to "In Progress"
+  inProgressAt?: string | null;
 }
 
 // The team's Kanban workflow, in board order

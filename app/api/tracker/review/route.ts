@@ -5,6 +5,7 @@ import {
   userActivity,
   projects,
   issueProgress,
+  issueProgressHistory,
   issueLinks,
   issueTasks,
   gitlabRepos,
@@ -105,6 +106,24 @@ export async function GET(request: NextRequest) {
       if (p.stage === "dev") current.dev = p.progress;
       else if (p.stage === "qa") current.qa = p.progress;
       progressByKey.set(key, current);
+    }
+
+    // ---- Fetch earliest /dev timestamp per issue (start date) ----
+    const devHistoryRows = await db
+      .select({
+        gitlabProjectId: issueProgressHistory.gitlabProjectId,
+        issueIid: issueProgressHistory.issueIid,
+        occurredAt: issueProgressHistory.occurredAt,
+      })
+      .from(issueProgressHistory)
+      .where(eq(issueProgressHistory.stage, "dev"))
+      .orderBy(issueProgressHistory.occurredAt);
+    const startDateByKey = new Map<string, Date>();
+    for (const h of devHistoryRows) {
+      const key = `${h.gitlabProjectId}:${h.issueIid}`;
+      if (!startDateByKey.has(key)) {
+        startDateByKey.set(key, h.occurredAt);
+      }
     }
 
     // ---- Fetch linked (child) issues for master tickets ----
@@ -281,6 +300,10 @@ export async function GET(request: NextRequest) {
           stageEnteredAt: r.stageEnteredAt
             ? new Date(r.stageEnteredAt).toISOString()
             : null,
+          inProgressAt: r.inProgressAt
+            ? new Date(r.inProgressAt).toISOString()
+            : null,
+          startDate: startDateByKey.get(`${r.gitlabProjectId}:${r.issueIid}`)?.getTime() ?? null,
           weight: r.weight ?? null,
         };
       })

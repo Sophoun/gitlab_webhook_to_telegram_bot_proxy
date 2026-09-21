@@ -8,7 +8,7 @@ import { SyncDialog } from "../SyncDialog";
 import { ReviewHeader } from "./ReviewHeader";
 import { BoardOverview } from "./BoardOverview";
 import { NeedsAttention } from "./NeedsAttention";
-import { WIP_LIMIT, type ReviewData } from "./types";
+import { WIP_LIMIT, priorityLabel, type ReviewData } from "./types";
 import { ageDays, categorizeAttention } from "./attention";
 import { Download, Trophy, ArrowRight } from "lucide-react";
 
@@ -118,10 +118,6 @@ export function ReviewOverview() {
       const attentionRows: Array<Record<string, string | number>> = [];
       for (const cat of attention) {
         for (const i of cat.issues) {
-          const startDate =
-            i.boardStage === "In Progress" && i.stageEnteredAt
-              ? new Date(i.stageEnteredAt).toLocaleDateString()
-              : "";
           attentionRows.push({
             Category: cat.title,
             IID: i.issueIid,
@@ -133,10 +129,9 @@ export function ReviewOverview() {
               .filter(Boolean)
               .join(", "),
             Stage: i.boardStage,
-            "Start Date": startDate,
             "Dev Progress (%)": i.devProgress ?? "",
             "QA Progress (%)": i.qaProgress ?? "",
-            Priority: i.priority || "",
+            Priority: i.priority ? `${i.priority} - ${priorityLabel(i.priority)}` : "",
             "Age (days)": ageDays(i.createdAt),
             URL: i.issueUrl || "",
           });
@@ -145,16 +140,15 @@ export function ReviewOverview() {
       const attentionSheet = XLSX.utils.json_to_sheet(attentionRows);
       attentionSheet["!cols"] = [
         { wch: 24 }, { wch: 8 }, { wch: 50 }, { wch: 20 }, { wch: 20 }, { wch: 14 },
-        { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 10 }, { wch: 12 }, { wch: 40 },
+        { wch: 15 }, { wch: 15 }, { wch: 10 }, { wch: 12 }, { wch: 40 },
       ];
 
       // Sheet: All Issues
       const issueSheet = XLSX.utils.json_to_sheet(
         issues.map((i) => {
-          const startDate =
-            i.boardStage === "In Progress" && i.stageEnteredAt
-              ? new Date(i.stageEnteredAt).toLocaleDateString()
-              : "";
+          const startDate = i.inProgressAt
+            ? new Date(i.inProgressAt).toLocaleDateString()
+            : "";
           return {
             IID: i.issueIid,
             Title: i.issueTitle || "",
@@ -170,7 +164,7 @@ export function ReviewOverview() {
             "Start Date": startDate,
             "Dev Progress (%)": i.devProgress ?? "",
             "QA Progress (%)": i.qaProgress ?? "",
-            Priority: i.priority || "",
+            Priority: i.priority ? `${i.priority} - ${priorityLabel(i.priority)}` : "",
             Team: i.team || "",
             Type: i.type || "",
             Created: i.createdAt ? new Date(i.createdAt).toLocaleDateString() : "",

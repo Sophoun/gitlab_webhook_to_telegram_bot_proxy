@@ -387,6 +387,39 @@ export class GitLabClient {
     return links;
   }
 
+  /**
+   * Fetch label events for an issue (when labels were added/removed).
+   * Used to determine when an issue first entered "In Progress".
+   */
+  async getIssueLabelEvents(
+    projectId: number,
+    issueIid: number
+  ): Promise<Array<{ created_at: string; action: string; label: { name: string } }>> {
+    const events: Array<{ created_at: string; action: string; label: { name: string } }> = [];
+    let page = 1;
+    const perPage = 100;
+
+    while (true) {
+      const url = `${this.apiBase}/projects/${projectId}/issues/${issueIid}/resource_label_events?page=${page}&per_page=${perPage}`;
+      const response = await fetchWithRetry(url, { headers: this.getHeaders() });
+      const data = await response.json();
+
+      if (!Array.isArray(data) || data.length === 0) {
+        break;
+      }
+
+      events.push(...data);
+      await sleep(RATE_LIMIT_DELAY);
+
+      if (data.length < perPage) {
+        break;
+      }
+      page++;
+    }
+
+    return events;
+  }
+
   async getMergeRequestNotes(
     projectId: number,
     mrIid: number

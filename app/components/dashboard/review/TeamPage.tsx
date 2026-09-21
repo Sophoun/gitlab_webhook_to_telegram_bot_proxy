@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ReviewHeader } from "./ReviewHeader";
 import { TeamWeekSection } from "./TeamWeekSection";
-import { WIP_LIMIT, type ReviewData } from "./types";
+import { WIP_LIMIT, priorityLabel, type ReviewData } from "./types";
 import { Download, ChevronLeft, ChevronRight } from "lucide-react";
 
 interface PersonWeek {
@@ -190,6 +190,9 @@ export function TeamPage() {
         Title: string | null;
         Project: string;
         Stage: string;
+        Priority: string;
+        "Dev Progress (%)": number | null;
+        "QA Progress (%)": number | null;
         "Start Date": string;
         "Weight (h)": number | null;
         URL: string;
@@ -215,8 +218,12 @@ export function TeamPage() {
                 issueUrl: string | null;
                 projectName: string;
                 boardStage: string;
+                priority: string;
+                devProgress: number | null;
+                qaProgress: number | null;
                 weight: number | null;
-                stageEnteredAt: string | null;
+                startDate: number | null;
+                inProgressAt: number | null;
               }> = data.openTasks || [];
               return tasks.map((t) => ({
                 Person: p.name,
@@ -224,8 +231,11 @@ export function TeamPage() {
                 Title: t.issueTitle,
                 Project: t.projectName,
                 Stage: t.boardStage,
-                "Start Date": t.stageEnteredAt
-                  ? new Date(t.stageEnteredAt).toLocaleDateString()
+                Priority: t.priority ? `${t.priority} - ${priorityLabel(t.priority)}` : "",
+                "Dev Progress (%)": t.devProgress,
+                "QA Progress (%)": t.qaProgress,
+                "Start Date": t.inProgressAt
+                  ? new Date(t.inProgressAt).toLocaleDateString()
                   : "",
                 "Weight (h)": t.weight ?? null,
                 URL: t.issueUrl || "",
@@ -240,12 +250,13 @@ export function TeamPage() {
 
       const issueSheet = XLSX.utils.json_to_sheet(issueRows);
       issueSheet["!cols"] = [
-        { wch: 20 }, { wch: 10 }, { wch: 40 }, { wch: 25 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 60 },
+        { wch: 20 }, { wch: 10 }, { wch: 40 }, { wch: 25 }, { wch: 16 },
+        { wch: 10 }, { wch: 15 }, { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 60 },
       ];
       // Enable auto-filter on the header row
       if (issueRows.length > 0) {
         issueSheet["!autofilter"] = {
-          ref: `A1:G${issueRows.length + 1}`,
+          ref: `A1:K${issueRows.length + 1}`,
         };
       }
 

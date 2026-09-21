@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { userActivity, issueAnalytics, issueTasks, gitlabRepos } from "@/db/schema";
+import { userActivity, issueAnalytics, issueProgressHistory, issueProgress, issueTasks, gitlabRepos } from "@/db/schema";
 import { and, eq, gte, lte, asc, like } from "drizzle-orm";
 import { parseBoardLabels } from "@/app/components/dashboard/review/types";
 
@@ -239,6 +239,7 @@ export async function GET(request: NextRequest) {
         createdAt: issueAnalytics.createdAt,
         weight: issueAnalytics.weight,
         stageEnteredAt: issueAnalytics.stageEnteredAt,
+        inProgressAt: issueAnalytics.inProgressAt,
       })
       .from(issueAnalytics)
       .where(
@@ -248,6 +249,35 @@ export async function GET(request: NextRequest) {
         )
       );
 
+    // ---- Earliest /dev timestamp per issue (start date) ----
+    const devHistoryRows = await db
+      .select({
+        gitlabProjectId: issueProgressHistory.gitlabProjectId,
+        issueIid: issueProgressHistory.issueIid,
+        occurredAt: issueProgressHistory.occurredAt,
+      })
+      .from(issueProgressHistory)
+      .where(eq(issueProgressHistory.stage, "dev"))
+      .orderBy(issueProgressHistory.occurredAt);
+    const startDateByKey = new Map<string, Date>();
+    for (const h of devHistoryRows) {
+      const key = `${h.gitlabProjectId}:${h.issueIid}`;
+      if (!startDateByKey.has(key)) {
+        startDateByKey.set(key, h.occurredAt);
+      }
+    }
+
+    // ---- Fetch progress values (set via /dev, /test, /uat comment commands) ----
+    const progressRows = await db.select().from(issueProgress);
+    const progressByKey = new Map<string, { dev: number | null; qa: number | null }>();
+    for (const p of progressRows) {
+      const key = `${p.gitlabProjectId}:${p.issueIid}`;
+      const current = progressByKey.get(key) ?? { dev: null, qa: null };
+      if (p.stage === "dev") current.dev = p.progress;
+      else if (p.stage === "qa") current.qa = p.progress;
+      progressByKey.set(key, current);
+    }
+
     const openTasks: Array<{
       gitlabProjectId: number;
       issueIid: number;
@@ -255,31 +285,42 @@ export async function GET(request: NextRequest) {
       issueUrl: string | null;
       projectName: string;
       boardStage: string;
+      priority: string;
+      devProgress: number | null;
+      qaProgress: number | null;
       isAssignee: boolean;
       createdAt: string | null;
       weight: number | null;
       stageEnteredAt: string | null;
+      startDate: number | null;
+      inProgressAt: number | null;
     }> = [];
 
     for (const r of openTaskRows) {
       const assignees = (r.assigneeUsernames || "").split(",").map((a) => a.trim());
       const isAssignee = assignees.includes(user.toLowerCase());
       if (!isAssignee) continue;
-      const boardStage = parseBoardLabels(r.labels, "open").boardStage;
+      const board = parseBoardLabels(r.labels, "open");
+      const prog = progressByKey.get(`${r.gitlabProjectId}:${r.issueIid}`) ?? { dev: null, qa: null };
       openTasks.push({
         gitlabProjectId: r.gitlabProjectId,
         issueIid: r.issueIid,
         issueTitle: r.issueTitle,
         issueUrl: r.issueUrl,
         projectName: repoNames.get(r.gitlabProjectId) ?? String(r.gitlabProjectId),
-        boardStage,
+        boardStage: board.boardStage,
+        priority: board.priority ?? "",
+        devProgress: prog.dev,
+        qaProgress: prog.qa,
         isAssignee,
         createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : null,
         weight: r.weight ?? null,
         stageEnteredAt:
-          boardStage === "In Progress" && r.stageEnteredAt
+          board.boardStage === "In Progress" && r.stageEnteredAt
             ? new Date(r.stageEnteredAt).toISOString()
             : null,
+        startDate: startDateByKey.get(`${r.gitlabProjectId}:${r.issueIid}`)?.getTime() ?? null,
+        inProgressAt: r.inProgressAt ? new Date(r.inProgressAt).getTime() : null,
       });
     }
     openTasks.sort((a, b) => a.issueIid - b.issueIid);

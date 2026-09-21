@@ -82,6 +82,7 @@ export const issueAnalytics = sqliteTable("issue_analytics", {
   // Kanban stage tracking
   boardStage: text("board_stage"), // current stage computed from labels
   stageEnteredAt: integer("stage_entered_at", { mode: "timestamp" }), // when issue entered current stage
+  inProgressAt: integer("in_progress_at", { mode: "timestamp" }), // first time issue moved to "In Progress"
   
   // Weight (man-hours) parsed from /hour command in description
   weight: integer("weight"),

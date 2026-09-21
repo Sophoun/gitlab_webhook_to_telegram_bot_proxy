@@ -203,20 +203,21 @@ export async function POST(request: NextRequest) {
               issue.closed_at &&
               Date.now() - new Date(issue.closed_at).getTime() > NINETY_DAYS_MS;
 
-            const [notes, links] = await Promise.all([
+            const [notes, links, labelEvents] = await Promise.all([
               isStaleClosed
                 ? Promise.resolve([] as import("@/lib/gitlab-api").GitLabNote[])
                 : client.getIssueNotes(gitlabProject.id, issue.iid).catch(() => [] as import("@/lib/gitlab-api").GitLabNote[]),
               client.getIssueLinks(gitlabProject.id, issue.iid).catch(() => [] as import("@/lib/gitlab-api").GitLabIssueLink[]),
+              client.getIssueLabelEvents(gitlabProject.id, issue.iid).catch(() => [] as Array<{ created_at: string; action: string; label: { name: string } }>),
             ]);
-            return { issue, notes, links };
+            return { issue, notes, links, labelEvents };
           }, (completed, total) => {
             console.log(`    Progress: ${completed}/${total} issues fetched (notes+links)`);
           });
 
           // ── Phase 2: Process fetched data sequentially (fast) ────────────
           const _ph = (msg: string) => { console.log(`[sync] ${msg}`); };
-          for (const { issue, notes, links } of issueData) {
+          for (const { issue, notes, links, labelEvents } of issueData) {
             // Track the most recent event for stageEnteredAt
             let lastEventAt = new Date(issue.created_at);
 
@@ -390,6 +391,13 @@ export async function POST(request: NextRequest) {
                 uniqueCommenters: Array.from(commenters).join(","),
                 boardStage: board.boardStage,
                 stageEnteredAt: lastEventAt,
+                inProgressAt: (() => {
+                  // Find the first time "In Progress" label was added
+                  const inProgressAdd = labelEvents
+                    .filter((e) => e.action === "add" && e.label?.name?.toLowerCase() === "in progress")
+                    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())[0];
+                  return inProgressAdd ? new Date(inProgressAdd.created_at) : null;
+                })(),
                 weight: noteWeightEntry?.value ?? parseWeight(issue.description),
               });
 

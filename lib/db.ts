@@ -92,6 +92,9 @@ function initSchema(db: Database.Database) {
     if (!iaCols.has("weight")) {
       db.exec(`ALTER TABLE issue_analytics ADD COLUMN weight INTEGER`);
     }
+    if (!iaCols.has("in_progress_at")) {
+      db.exec(`ALTER TABLE issue_analytics ADD COLUMN in_progress_at INTEGER`);
+    }
 
     db.exec(`
     CREATE TABLE IF NOT EXISTS issue_progress (
