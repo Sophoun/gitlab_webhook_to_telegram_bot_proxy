@@ -10,8 +10,11 @@ import { Sidebar } from "./components/dashboard/Sidebar";
 import { ProjectFormDialog } from "./components/dashboard/ProjectFormDialog";
 import { WebhookUrlsDialog } from "./components/dashboard/WebhookUrlsDialog";
 import { Project, SyncLog, ProjectFormData } from "./types";
+import { useToast } from "./components/dashboard/Toast";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export default function Dashboard() {
+  const { toast } = useToast();
   const [projects, setProjects] = useState<Project[]>([]);
   const [logs, setLogs] = useState<SyncLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,13 +78,14 @@ export default function Dashboard() {
         setDialogOpen(false);
         setSelectedProject(null);
         setRefreshKey((k) => k + 1);
+        toast(projectId ? "Project updated" : "Project created", "success");
       } else {
         const error = await res.json();
-        alert(`Error: ${error.error}`);
+        toast(error.error || "Failed to save project", "error");
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
-      alert(`Error: ${message}`);
+      toast(message, "error");
     }
   }
 
@@ -90,6 +94,7 @@ export default function Dashboard() {
       const res = await fetch(`/api/projects/${id}`, { method: "DELETE" });
       if (res.ok) {
         setRefreshKey((k) => k + 1);
+        toast("Project deleted", "success");
       }
     } catch (error) {
       console.error("Failed to delete project:", error);
@@ -120,9 +125,26 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-lg text-muted-foreground">Loading...</div>
-      </div>
+      <Suspense>
+      <Sidebar>
+        <div className="p-6 space-y-6">
+          <div className="flex items-center justify-between">
+            <div className="space-y-2">
+              <Skeleton className="h-8 w-48" />
+              <Skeleton className="h-4 w-72" />
+            </div>
+            <Skeleton className="h-9 w-32" />
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {[...Array(4)].map((_, i) => (
+              <Skeleton key={i} className="h-28 rounded-lg" />
+            ))}
+          </div>
+          <Skeleton className="h-64 rounded-lg" />
+          <Skeleton className="h-48 rounded-lg" />
+        </div>
+      </Sidebar>
+      </Suspense>
     );
   }
 

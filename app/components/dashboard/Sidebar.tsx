@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "./ThemeToggle";
 
 const navigationGroups = [
   {
@@ -26,7 +27,7 @@ const navigationGroups = [
   {
     label: "Analytics",
     items: [
-      { name: "Dashboard", href: "/review", icon: ClipboardList },
+      { name: "Board Review", href: "/review", icon: ClipboardList },
       { name: "Who Did What", href: "/review/team", icon: Users2 },
       { name: "Issue Tracker", href: "/review/tracker", icon: ListTodo },
     ],
@@ -118,10 +119,11 @@ export function Sidebar({ children }: SidebarProps) {
         </nav>
 
         {/* Footer - fixed at bottom */}
-        <div className="p-4 border-t shrink-0">
-          <div className="text-xs text-muted-foreground text-center">
+        <div className="p-4 border-t shrink-0 flex items-center justify-between">
+          <div className="text-xs text-muted-foreground">
             v2.0.1
           </div>
+          <ThemeToggle />
         </div>
       </aside>
 
