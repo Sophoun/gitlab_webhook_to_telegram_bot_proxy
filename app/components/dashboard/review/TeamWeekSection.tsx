@@ -446,7 +446,7 @@ export function TeamWeekSection({
           </div>
         ) : (
           <>
-            {/* Stage filter + search on same row */}
+            {/* Stage filter + person filter + search on same row */}
             <div className="flex items-center gap-3 pb-3">
               <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">
                 Tasks in stage:

@@ -114,6 +114,7 @@ export function TeamPage() {
   const searchParams = useSearchParams();
   const repoParamRaw = searchParams.get("repo");
   const repoParam = repoParamRaw && !isNaN(parseInt(repoParamRaw)) ? repoParamRaw : null;
+  const projectParam = searchParams.get("project") || "";
 
   // Period state
   const [periodType, setPeriodType] = useState<PeriodType>("week");
@@ -143,10 +144,14 @@ export function TeamPage() {
 
   const fetchTeam = useCallback(async () => {
     try {
-      const repoQs = repoParam ? `&repo=${repoParam}` : "";
-      const res = await fetch(
-        `/api/tracker/team-week?from=${fromIso}&to=${toIso}&period=${periodType}${repoQs}`
-      );
+      // "Who Did What" scoped by project or repo if selected
+      const params = new URLSearchParams();
+      params.set("from", fromIso);
+      params.set("to", toIso);
+      params.set("period", periodType);
+      if (repoParam) params.set("repo", repoParam);
+      else if (projectParam) params.set("project", projectParam);
+      const res = await fetch(`/api/tracker/team-week?${params.toString()}`);
       const data = await res.json();
       setPeople(data.error ? [] : data.people || []);
     } catch (error) {
@@ -155,7 +160,7 @@ export function TeamPage() {
     } finally {
       setTeamLoading(false);
     }
-  }, [fromIso, toIso, repoParam, periodType]);
+  }, [fromIso, toIso, periodType, repoParam, projectParam]);
 
   // WIP counts come from the review endpoint (main board In Progress per person)
   const fetchReview = useCallback(async () => {

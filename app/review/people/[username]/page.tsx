@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { Sidebar } from "../../../components/dashboard/Sidebar";
 import { PersonProfile } from "../../../components/dashboard/review/PersonProfile";
 
@@ -8,8 +9,10 @@ export default async function PersonPage({
 }) {
   const { username } = await params;
   return (
+    <Suspense>
     <Sidebar>
       <PersonProfile username={decodeURIComponent(username)} />
     </Sidebar>
+    </Suspense>
   );
 }

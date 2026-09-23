@@ -4,10 +4,12 @@ import { ReviewOverview } from "../components/dashboard/review/ReviewOverview";
 
 export default function ReviewPage() {
   return (
+    <Suspense>
     <Sidebar>
       <Suspense>
         <ReviewOverview />
       </Suspense>
     </Sidebar>
+    </Suspense>
   );
 }

@@ -38,7 +38,6 @@ function toIsoWeekKey(date: Date): string {
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
-    const project = searchParams.get("project"); // DB project id
     const author = searchParams.get("author"); // username
     const status = searchParams.get("status"); // open | closed
     const period = searchParams.get("period") || "all"; // 7 | 30 | 90 | all (days)
@@ -53,20 +52,26 @@ export async function GET(request: NextRequest) {
       .from(projects);
     const projectNameById = new Map(projectRows.map((p) => [p.id, p.name]));
 
-    // Collect all GitLab project IDs across all configs (main + children)
-    // so the default view shows issues from all repos.
-    const allGitlabProjectIds = (await db.select({ id: gitlabRepos.id }).from(gitlabRepos))
+    // Collect main GitLab project IDs — scoped by project config if specified
+    const projectParam = searchParams.get("project"); // DB project config id
+    const mainGitlabProjectIds = (await db
+      .select({ id: gitlabRepos.id, configProjectId: gitlabRepos.configProjectId })
+      .from(gitlabRepos)
+      .where(
+        projectParam && !isNaN(parseInt(projectParam))
+          ? and(eq(gitlabRepos.isMain, true), eq(gitlabRepos.configProjectId, parseInt(projectParam)))
+          : eq(gitlabRepos.isMain, true)
+      ))
       .map((r) => r.id);
 
     // ---- Repo scoping ----
-    // Default: ALL repos. `repo=<gitlab_project_id>` re-scopes the
-    // whole review to a single repo (e.g. a child project with its own board).
+    // Priority: repo param > project param (main repos of that config) > all main repos
     const repoParam = searchParams.get("repo");
     const scopeFilter: SQL =
       repoParam && !isNaN(parseInt(repoParam))
         ? eq(issueAnalytics.gitlabProjectId, parseInt(repoParam))
-        : allGitlabProjectIds.length > 0
-          ? inArray(issueAnalytics.gitlabProjectId, allGitlabProjectIds)
+        : mainGitlabProjectIds.length > 0
+          ? inArray(issueAnalytics.gitlabProjectId, mainGitlabProjectIds)
           : sql`1=1`; // no repos cached yet — show everything
 
     // ---- Build shared filters ----
@@ -76,9 +81,6 @@ export async function GET(request: NextRequest) {
         : null;
 
     const issueConditions: SQL[] = [scopeFilter];
-    if (project && !isNaN(parseInt(project))) {
-      issueConditions.push(eq(issueAnalytics.projectId, parseInt(project)));
-    }
     if (author) {
       issueConditions.push(like(issueAnalytics.assigneeUsernames, `%${author}%`));
     }
@@ -512,14 +514,11 @@ export async function GET(request: NextRequest) {
     const activityScopeFilter: SQL =
       repoParam && !isNaN(parseInt(repoParam))
         ? eq(userActivity.gitlabProjectId, parseInt(repoParam))
-        : allGitlabProjectIds.length > 0
-          ? inArray(userActivity.gitlabProjectId, allGitlabProjectIds)
+        : mainGitlabProjectIds.length > 0
+          ? inArray(userActivity.gitlabProjectId, mainGitlabProjectIds)
           : sql`1=1`;
 
     const activityConditions: SQL[] = [activityScopeFilter];
-    if (project && !isNaN(parseInt(project))) {
-      activityConditions.push(eq(userActivity.projectId, parseInt(project)));
-    }
     if (author) {
       activityConditions.push(eq(userActivity.userUsername, author));
     }

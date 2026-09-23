@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
-import { userActivity, issueAnalytics, issueProgressHistory } from "@/db/schema";
-import { and, eq, gte, lte, sql } from "drizzle-orm";
+import { userActivity, issueAnalytics, issueProgressHistory, gitlabRepos } from "@/db/schema";
+import { and, eq, gte, lte, sql, inArray } from "drizzle-orm";
 import { computeProgressDelivered } from "@/lib/progress-parser";
 import { parseBoardLabels, WORKFLOW_STAGES, FALLBACK_STAGES } from "@/app/components/dashboard/review/types";
 import { calculatePerformanceScore } from "@/lib/performance-score";
@@ -44,10 +44,19 @@ async function fetchPeriodData(
   db: ReturnType<typeof getDb>,
   from: Date,
   to: Date,
-  repoId: number | null
+  repoId: number | null,
+  mainRepoIds: number[] | null = null
 ) {
-  const mainFilter = repoId !== null ? eq(userActivity.gitlabProjectId, repoId) : undefined;
-  const issueFilter = repoId !== null ? eq(issueAnalytics.gitlabProjectId, repoId) : undefined;
+  const mainFilter = repoId !== null
+    ? eq(userActivity.gitlabProjectId, repoId)
+    : mainRepoIds && mainRepoIds.length > 0
+      ? inArray(userActivity.gitlabProjectId, mainRepoIds)
+      : undefined;
+  const issueFilter = repoId !== null
+    ? eq(issueAnalytics.gitlabProjectId, repoId)
+    : mainRepoIds && mainRepoIds.length > 0
+      ? inArray(issueAnalytics.gitlabProjectId, mainRepoIds)
+      : undefined;
 
   const rows = await db
     .select({
@@ -276,17 +285,32 @@ export async function GET(request: NextRequest) {
     const db = getDb();
 
     const repoParam = searchParams.get("repo");
-    const repoId = repoParam && !isNaN(parseInt(repoParam)) ? parseInt(repoParam) : null;
+    const projectParam = searchParams.get("project"); // DB project config id
+    let repoId: number | null = null;
+    let mainRepoIds: number[] | null = null;
+    if (repoParam && !isNaN(parseInt(repoParam))) {
+      repoId = parseInt(repoParam);
+    } else if (projectParam && !isNaN(parseInt(projectParam))) {
+      // Scoped to a specific project config's main repos
+      const mainRepos = await db
+        .select({ id: gitlabRepos.id })
+        .from(gitlabRepos)
+        .where(and(eq(gitlabRepos.isMain, true), eq(gitlabRepos.configProjectId, parseInt(projectParam))));
+      if (mainRepos.length > 0) {
+        mainRepoIds = mainRepos.map((r) => r.id);
+      }
+    }
+    // else: no params → return ALL members across ALL projects
 
     // Fetch current period
-    const currentPeople = await fetchPeriodData(db, from, to, repoId);
+    const currentPeople = await fetchPeriodData(db, from, to, repoId, mainRepoIds);
 
     // Fetch previous period for deltas (skip for custom ranges — no meaningful prev)
     let prevPeople = currentPeople;
     let prevRange = { from, to };
     if (periodType !== "custom") {
       prevRange = shiftRange(periodType, from, to, -1);
-      prevPeople = await fetchPeriodData(db, prevRange.from, prevRange.to, repoId);
+      prevPeople = await fetchPeriodData(db, prevRange.from, prevRange.to, repoId, mainRepoIds);
     }
 
     // Build a lookup for previous period deltas
@@ -305,7 +329,12 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    // Open tasks per person across ALL projects
+    // Open tasks per person — scoped to main repos when no explicit repo
+    const openScopeFilter = repoId !== null
+      ? eq(issueAnalytics.gitlabProjectId, repoId)
+      : mainRepoIds && mainRepoIds.length > 0
+        ? inArray(issueAnalytics.gitlabProjectId, mainRepoIds)
+        : undefined;
     const openRows = await db
       .select({
         labels: issueAnalytics.labels,
@@ -313,7 +342,7 @@ export async function GET(request: NextRequest) {
         assigneeUsernames: issueAnalytics.assigneeUsernames,
       })
       .from(issueAnalytics)
-      .where(eq(issueAnalytics.state, "opened"));
+      .where(openScopeFilter ? and(eq(issueAnalytics.state, "opened"), openScopeFilter) : eq(issueAnalytics.state, "opened"));
 
     const openTaskCount = new Map<string, number>();
     const openTasksByStage = new Map<string, Record<string, number>>();
@@ -332,7 +361,12 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Quality metrics per person from issueAnalytics (avg cycle time, avg first response)
+    // Quality metrics per person from issueAnalytics — scoped to main repos
+    const qualityScopeFilter = repoId !== null
+      ? eq(issueAnalytics.gitlabProjectId, repoId)
+      : mainRepoIds && mainRepoIds.length > 0
+        ? inArray(issueAnalytics.gitlabProjectId, mainRepoIds)
+        : undefined;
     const qualityRows = await db
       .select({
         assigneeUsernames: issueAnalytics.assigneeUsernames,
@@ -340,7 +374,8 @@ export async function GET(request: NextRequest) {
         timeToFirstResponseHours: issueAnalytics.timeToFirstResponseHours,
         state: issueAnalytics.state,
       })
-      .from(issueAnalytics);
+      .from(issueAnalytics)
+      .where(qualityScopeFilter);
 
     // Aggregate quality metrics per person
     const qualityMap = new Map<string, { closeTimes: number[]; responseTimes: number[] }>();
@@ -411,13 +446,18 @@ export async function GET(request: NextRequest) {
     const needsLastActive = result.filter((p) => !p.lastActivityAt);
     if (needsLastActive.length > 0) {
       const usernames = needsLastActive.map((p) => p.username);
+      const lastActivityScope = repoId !== null
+        ? and(sql`${userActivity.userUsername} IN ${usernames}`, eq(userActivity.gitlabProjectId, repoId))
+        : mainRepoIds && mainRepoIds.length > 0
+          ? and(sql`${userActivity.userUsername} IN ${usernames}`, inArray(userActivity.gitlabProjectId, mainRepoIds))
+          : sql`${userActivity.userUsername} IN ${usernames}`;
       const lastRows = await db
         .select({
           userUsername: userActivity.userUsername,
           lastAt: sql<string>`max(${userActivity.occurredAt})`,
         })
         .from(userActivity)
-        .where(sql`${userActivity.userUsername} IN ${usernames}`)
+        .where(lastActivityScope)
         .groupBy(userActivity.userUsername);
       const lastMap = new Map<string, string>();
       for (const r of lastRows) lastMap.set(r.userUsername, r.lastAt);

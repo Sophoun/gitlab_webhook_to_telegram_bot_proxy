@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Sidebar } from "../components/dashboard/Sidebar";
@@ -119,15 +119,18 @@ export default function ProjectsPage() {
 
   if (loading) {
     return (
+      <Suspense>
       <Sidebar>
         <div className="flex items-center justify-center min-h-screen">
           <div className="text-lg text-muted-foreground">Loading...</div>
         </div>
       </Sidebar>
+      </Suspense>
     );
   }
 
   return (
+    <Suspense>
     <Sidebar>
       <div className="p-6">
         <div className="mb-6">
@@ -182,5 +185,6 @@ export default function ProjectsPage() {
         urls={webhookUrls}
       />
     </Sidebar>
+    </Suspense>
   );
 }

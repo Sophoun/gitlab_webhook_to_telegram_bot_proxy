@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatsCards } from "./components/dashboard/StatsCards";
@@ -127,6 +127,7 @@ export default function Dashboard() {
   }
 
   return (
+    <Suspense>
     <Sidebar>
       <div className="p-6">
         {/* Header */}
@@ -197,5 +198,6 @@ export default function Dashboard() {
         urls={webhookUrls}
       />
     </Sidebar>
+    </Suspense>
   );
 }

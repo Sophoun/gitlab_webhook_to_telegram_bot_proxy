@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard,
@@ -40,6 +40,8 @@ interface SidebarProps {
 export function Sidebar({ children }: SidebarProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const projectParam = searchParams.get("project") || "";
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -86,11 +88,17 @@ export function Sidebar({ children }: SidebarProps) {
               </div>
               <div className="space-y-0.5">
                 {group.items.map((item) => {
-                  const isActive = pathname === item.href;
+                  const isActive = projectParam
+                    ? pathname === item.href && searchParams.get("project") === projectParam
+                    : pathname === item.href && !searchParams.get("project");
+                  // Carry project param on analytics links
+                  const href = (projectParam && item.href.startsWith("/review"))
+                    ? `${item.href}?project=${projectParam}`
+                    : item.href;
                   return (
                     <Link
                       key={item.name}
-                      href={item.href}
+                      href={href}
                       className={cn(
                         "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
                         isActive

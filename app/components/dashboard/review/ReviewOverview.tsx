@@ -40,6 +40,7 @@ export function ReviewOverview() {
   const searchParams = useSearchParams();
   const repoParamRaw = searchParams.get("repo");
   const repoParam = repoParamRaw && !isNaN(parseInt(repoParamRaw)) ? repoParamRaw : null;
+  const projectParam = searchParams.get("project") || "";
 
   const [review, setReview] = useState<ReviewData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -50,8 +51,11 @@ export function ReviewOverview() {
 
   const fetchIssues = useCallback(async () => {
     try {
-      const repoQs = repoParam ? `?repo=${repoParam}` : "";
-      const res = await fetch(`/api/tracker/review${repoQs}`);
+      const params = new URLSearchParams();
+      if (repoParam) params.set("repo", repoParam);
+      if (projectParam) params.set("project", projectParam);
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      const res = await fetch(`/api/tracker/review${qs}`);
       const data = await res.json();
       setReview(data.error ? null : data);
     } catch (error) {
@@ -60,7 +64,7 @@ export function ReviewOverview() {
     } finally {
       setLoading(false);
     }
-  }, [repoParam]);
+  }, [repoParam, projectParam]);
 
   const fetchTopPerformers = useCallback(async () => {
     try {
@@ -72,10 +76,13 @@ export function ReviewOverview() {
       from.setHours(0, 0, 0, 0);
       const to = new Date(from);
       to.setDate(from.getDate() + 7);
-      const repoQs = repoParam ? `&repo=${repoParam}` : "";
-      const res = await fetch(
-        `/api/tracker/team-week?from=${from.toISOString()}&to=${to.toISOString()}&period=week${repoQs}`
-      );
+      const params = new URLSearchParams();
+      params.set("from", from.toISOString());
+      params.set("to", to.toISOString());
+      params.set("period", "week");
+      if (repoParam) params.set("repo", repoParam);
+      if (projectParam) params.set("project", projectParam);
+      const res = await fetch(`/api/tracker/team-week?${params.toString()}`);
       const data = await res.json();
       if (!data.error) {
         const top = (data.people || [])
@@ -87,7 +94,7 @@ export function ReviewOverview() {
     } catch (error) {
       console.error("Failed to fetch top performers:", error);
     }
-  }, [repoParam]);
+  }, [repoParam, projectParam]);
 
   useEffect(() => {
     fetchIssues();
@@ -370,7 +377,12 @@ export function ReviewOverview() {
                   ))}
                 </div>
                 <div className="mt-3">
-                  <Button variant="ghost" size="sm" onClick={() => router.push("/review/team")}>
+                  <Button variant="ghost" size="sm" onClick={() => {
+                    const params = new URLSearchParams();
+                    if (projectParam) params.set("project", projectParam);
+                    const qs = params.toString() ? `?${params.toString()}` : "";
+                    router.push(`/review/team${qs}`);
+                  }}>
                     View full leaderboard <ArrowRight className="h-3.5 w-3.5 ml-1" />
                   </Button>
                 </div>
