@@ -41,6 +41,8 @@ export interface ReviewIssue {
   priority: string | null;
   team: string | null;
   type: string | null;
+  /** Market segment label (Backbone, Digital, Mass, Other, Selective) */
+  market: string | null;
   // Child issues linked from other GitLab projects
   linkedIssues: LinkedIssueInfo[];
   /** Comma-separated usernames of all people who performed any action (create, close, comment, commit) */
@@ -106,6 +108,8 @@ export const FALLBACK_STAGES = ["Opened", "Closed"];
 
 export const TEAM_LABELS = ["Business", "Android", "iOS", "Backend", "DevOps", "Frontend"];
 const TYPE_LABELS = ["Feature", "Bug", "Tech Debt", "Research", "Enhancement"];
+/** Market segment labels — extracted from issue labels for reporting. */
+export const MARKET_LABELS = ["Backbone", "Digital", "Mass", "Other", "Selective"];
 
 /**
  * Map GitLab labels + state onto the team's Kanban board.
@@ -126,6 +130,7 @@ export function parseBoardLabels(
   priority: string | null;
   team: string | null;
   type: string | null;
+  market: string | null;
 } {
   const tokens = (labels || "")
     .split(",")
@@ -168,7 +173,12 @@ export function parseBoardLabels(
     tokens.find((t) => TYPE_LABELS.some((x) => x.toLowerCase() === t.toLowerCase())) ??
     null;
 
-  return { boardStage, priority, team, type };
+  const market =
+    MARKET_LABELS.find((x) =>
+      tokens.some((t) => t.toLowerCase() === x.toLowerCase())
+    ) ?? null;
+
+  return { boardStage, priority, team, type, market };
 }
 
 /** Descriptive label for a priority code (P0 → "Urgent", etc.) */

@@ -174,6 +174,7 @@ export function ReviewOverview() {
             Priority: i.priority ? `${i.priority} - ${priorityLabel(i.priority)}` : "",
             Team: i.team || "",
             Type: i.type || "",
+            Market: i.market || "",
             Created: i.createdAt ? new Date(i.createdAt).toLocaleDateString() : "",
             Closed: i.closedAt ? new Date(i.closedAt).toLocaleDateString() : "",
             "Age (days)": i.state === "open" ? ageDays(i.createdAt) : "",
@@ -186,8 +187,8 @@ export function ReviewOverview() {
       issueSheet["!cols"] = [
         { wch: 8 }, { wch: 50 }, { wch: 16 }, { wch: 20 }, { wch: 20 }, { wch: 9 },
         { wch: 14 }, { wch: 12 }, { wch: 15 }, { wch: 15 }, { wch: 10 }, { wch: 10 },
-        { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 11 }, { wch: 11 }, { wch: 17 },
-        { wch: 10 }, { wch: 40 },
+        { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 11 },
+        { wch: 11 }, { wch: 17 }, { wch: 10 }, { wch: 40 },
       ];
 
       const wb = XLSX.utils.book_new();

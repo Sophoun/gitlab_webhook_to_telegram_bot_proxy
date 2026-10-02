@@ -77,3 +77,29 @@ describe("parseBoardLabels — squad board aliases", () => {
     expect(r.team).toBe("Android");
   });
 });
+
+describe("parseBoardLabels — market extraction", () => {
+  it("extracts market labels", () => {
+    expect(parseBoardLabels("Backbone", "opened").market).toBe("Backbone");
+    expect(parseBoardLabels("Digital", "opened").market).toBe("Digital");
+    expect(parseBoardLabels("Mass", "opened").market).toBe("Mass");
+    expect(parseBoardLabels("Other", "opened").market).toBe("Other");
+    expect(parseBoardLabels("Selective", "opened").market).toBe("Selective");
+  });
+
+  it("extracts market alongside stage, priority and team labels", () => {
+    const r = parseBoardLabels(
+      "Android,Backbone,Frontend,P1 - High,Refinement,iOS",
+      "opened"
+    );
+    expect(r.boardStage).toBe("Refinement");
+    expect(r.priority).toBe("P1");
+    expect(r.market).toBe("Backbone");
+  });
+
+  it("is case-insensitive and returns null when absent", () => {
+    expect(parseBoardLabels("selective,In Progress", "opened").market).toBe("Selective");
+    expect(parseBoardLabels("In Progress,P1 - High", "opened").market).toBeNull();
+    expect(parseBoardLabels(null, "opened").market).toBeNull();
+  });
+});

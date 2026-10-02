@@ -236,6 +236,8 @@ export async function GET(request: NextRequest) {
         issueUrl: issueAnalytics.issueUrl,
         labels: issueAnalytics.labels,
         assigneeUsernames: issueAnalytics.assigneeUsernames,
+        authorName: issueAnalytics.authorName,
+        commentCount: issueAnalytics.commentCount,
         createdAt: issueAnalytics.createdAt,
         weight: issueAnalytics.weight,
         stageEnteredAt: issueAnalytics.stageEnteredAt,
@@ -286,9 +288,15 @@ export async function GET(request: NextRequest) {
       projectName: string;
       boardStage: string;
       priority: string;
+      labels: string | null;
+      assigneeUsernames: string | null;
+      authorName: string;
+      team: string | null;
+      type: string | null;
+      market: string | null;
       devProgress: number | null;
       qaProgress: number | null;
-      isAssignee: boolean;
+      commentCount: number | null;
       createdAt: string | null;
       weight: number | null;
       stageEnteredAt: string | null;
@@ -310,15 +318,20 @@ export async function GET(request: NextRequest) {
         projectName: repoNames.get(r.gitlabProjectId) ?? String(r.gitlabProjectId),
         boardStage: board.boardStage,
         priority: board.priority ?? "",
+        labels: r.labels,
+        assigneeUsernames: r.assigneeUsernames,
+        authorName: r.authorName,
+        team: board.team,
+        type: board.type,
+        market: board.market,
         devProgress: prog.dev,
         qaProgress: prog.qa,
-        isAssignee,
+        commentCount: r.commentCount ?? 0,
         createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : null,
         weight: r.weight ?? null,
-        stageEnteredAt:
-          board.boardStage === "In Progress" && r.stageEnteredAt
-            ? new Date(r.stageEnteredAt).toISOString()
-            : null,
+        stageEnteredAt: r.stageEnteredAt
+          ? new Date(r.stageEnteredAt).toISOString()
+          : null,
         startDate: startDateByKey.get(`${r.gitlabProjectId}:${r.issueIid}`)?.getTime() ?? null,
         inProgressAt: r.inProgressAt ? new Date(r.inProgressAt).getTime() : null,
       });
@@ -341,6 +354,7 @@ export async function GET(request: NextRequest) {
       issueIid: t.issueIid,
       taskText: t.taskText,
       isCompleted: !!t.isCompleted,
+      projectName: repoNames.get(t.gitlabProjectId) ?? String(t.gitlabProjectId),
     }));
 
     return NextResponse.json({

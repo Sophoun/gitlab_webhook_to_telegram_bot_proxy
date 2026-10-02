@@ -275,6 +275,7 @@ export async function GET(request: NextRequest) {
           priority: board.priority,
           team: board.team,
           type: board.type,
+          market: board.market,
           linkedIssues:
             linksByMaster.get(`${r.gitlabProjectId}:${r.issueIid}`) ?? [],
           taskAssignees:
