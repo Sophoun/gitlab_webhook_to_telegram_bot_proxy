@@ -245,7 +245,7 @@ export function TeamPage() {
               }> = data.openTasks || [];
 
               // Same columns as the Board Review "All Issues" sheet (+ Person)
-              const rows = tasks.map((t) => ({
+              const rows: Array<Record<string, string | number>> = tasks.map((t) => ({
                 Person: p.name,
                 IID: t.issueIid,
                 Title: t.issueTitle || "",
@@ -270,6 +270,56 @@ export function TeamPage() {
                 Comments: t.commentCount ?? 0,
                 URL: t.issueUrl || "",
               }));
+
+              // Closed tickets assigned to this person — same columns,
+              // Status/Closed/Cycle Time filled (Age blank, per Board Review)
+              const closed: Array<{
+                issueIid: number;
+                issueTitle: string | null;
+                issueUrl: string | null;
+                projectName: string;
+                boardStage: string;
+                priority: string;
+                assigneeUsernames: string | null;
+                authorName: string;
+                team: string | null;
+                type: string | null;
+                market: string | null;
+                devProgress: number | null;
+                qaProgress: number | null;
+                commentCount: number | null;
+                createdAt: string | null;
+                closedAt: string | null;
+                timeToCloseHours: number | null;
+                inProgressAt: number | null;
+              }> = data.closedTasks || [];
+              for (const t of closed) {
+                rows.push({
+                  Person: p.name,
+                  IID: t.issueIid,
+                  Title: t.issueTitle || "",
+                  Project: t.projectName,
+                  Author: t.authorName,
+                  Assignees: assigneeList(t.assigneeUsernames),
+                  Status: "closed",
+                  "Board Stage": t.boardStage,
+                  "Start Date": t.inProgressAt
+                    ? new Date(t.inProgressAt).toLocaleDateString()
+                    : "",
+                  "Dev Progress (%)": t.devProgress ?? "",
+                  "QA Progress (%)": t.qaProgress ?? "",
+                  Priority: t.priority ? `${t.priority} - ${priorityLabel(t.priority)}` : "",
+                  Team: t.team || "",
+                  Type: t.type || "",
+                  Market: t.market || "",
+                  Created: t.createdAt ? new Date(t.createdAt).toLocaleDateString() : "",
+                  Closed: t.closedAt ? new Date(t.closedAt).toLocaleDateString() : "",
+                  "Age (days)": "",
+                  "Cycle Time (hours)": t.timeToCloseHours ?? "",
+                  Comments: t.commentCount ?? 0,
+                  URL: t.issueUrl || "",
+                });
+              }
 
               // ReviewIssue-shaped objects for the shared attention categorizer
               const reviewIssues: ReviewIssue[] = tasks

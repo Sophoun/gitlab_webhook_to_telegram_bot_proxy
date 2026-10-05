@@ -338,6 +338,85 @@ export async function GET(request: NextRequest) {
     }
     openTasks.sort((a, b) => a.issueIid - b.issueIid);
 
+    // ---- Closed tasks assigned to this person (all-time, mirrors openTasks) ----
+    // Feeds the Excel export so the Assigned Issues sheet includes closed
+    // tickets with Status/Closed/Cycle Time, like the Board Review export.
+    const closedTaskRows = await db
+      .select({
+        gitlabProjectId: issueAnalytics.gitlabProjectId,
+        issueIid: issueAnalytics.issueIid,
+        issueTitle: issueAnalytics.issueTitle,
+        issueUrl: issueAnalytics.issueUrl,
+        labels: issueAnalytics.labels,
+        assigneeUsernames: issueAnalytics.assigneeUsernames,
+        authorName: issueAnalytics.authorName,
+        commentCount: issueAnalytics.commentCount,
+        createdAt: issueAnalytics.createdAt,
+        closedAt: issueAnalytics.closedAt,
+        timeToCloseHours: issueAnalytics.timeToCloseHours,
+        inProgressAt: issueAnalytics.inProgressAt,
+      })
+      .from(issueAnalytics)
+      .where(
+        and(
+          eq(issueAnalytics.state, "closed"),
+          like(issueAnalytics.assigneeUsernames, `%${userLower}%`),
+          issueFilter
+        )
+      );
+
+    const closedTasks: Array<{
+      gitlabProjectId: number;
+      issueIid: number;
+      issueTitle: string | null;
+      issueUrl: string | null;
+      projectName: string;
+      boardStage: string;
+      priority: string;
+      labels: string | null;
+      assigneeUsernames: string | null;
+      authorName: string;
+      team: string | null;
+      type: string | null;
+      market: string | null;
+      devProgress: number | null;
+      qaProgress: number | null;
+      commentCount: number | null;
+      createdAt: string | null;
+      closedAt: string | null;
+      timeToCloseHours: number | null;
+      inProgressAt: number | null;
+    }> = [];
+
+    for (const r of closedTaskRows) {
+      if (!isAssignee(r.assigneeUsernames) || !r.closedAt) continue;
+      const board = parseBoardLabels(r.labels, "closed");
+      const prog = progressByKey.get(`${r.gitlabProjectId}:${r.issueIid}`) ?? { dev: null, qa: null };
+      closedTasks.push({
+        gitlabProjectId: r.gitlabProjectId,
+        issueIid: r.issueIid,
+        issueTitle: r.issueTitle,
+        issueUrl: r.issueUrl,
+        projectName: repoNames.get(r.gitlabProjectId) ?? String(r.gitlabProjectId),
+        boardStage: board.boardStage,
+        priority: board.priority ?? "",
+        labels: r.labels,
+        assigneeUsernames: r.assigneeUsernames,
+        authorName: r.authorName,
+        team: board.team,
+        type: board.type,
+        market: board.market,
+        devProgress: prog.dev,
+        qaProgress: prog.qa,
+        commentCount: r.commentCount ?? 0,
+        createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : null,
+        closedAt: new Date(r.closedAt).toISOString(),
+        timeToCloseHours: r.timeToCloseHours ?? null,
+        inProgressAt: r.inProgressAt ? new Date(r.inProgressAt).getTime() : null,
+      });
+    }
+    closedTasks.sort((a, b) => a.issueIid - b.issueIid);
+
     // Fetch assigned checklist tasks from issue descriptions
     const taskRows = await db
       .select({
@@ -369,6 +448,7 @@ export async function GET(request: NextRequest) {
       mergedMrs: byType("mr_merged"),
       commits: byType("commit"),
       openTasks,
+      closedTasks,
       assignedTasks,
       dailyActivity,
     });
